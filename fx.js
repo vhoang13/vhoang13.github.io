@@ -23,7 +23,14 @@
   }
   FX.stars = stars;
 
-  // ── Constellation text stars ("UNDER CONSTRUCTION") ─────────
+  // ── Constellation text stars ("STILL BUILDING") ─────────────
+  // 3 wide x 5 tall bitmaps, row-major. A character with no glyph here
+  // renders as a BLANK GAP (silently), so any new wording must have every
+  // letter defined. At 3px some pairs are inherently close: B/D differ by
+  // a single row (B's middle bar), as do G/O. That's tolerable because the
+  // constellation is dim ambient texture read in context, not a headline —
+  // but it's the reason to eyeball any new wording on screen, not just in
+  // the array.
   const PIXEL_FONT = {
     U:[1,0,1,1,0,1,1,0,1,1,0,1,1,1,1],
     N:[1,0,1,1,1,1,1,1,1,1,0,1,1,0,1],
@@ -35,9 +42,15 @@
     S:[1,1,1,1,0,0,1,1,1,0,0,1,1,1,1],
     T:[1,1,1,0,1,0,0,1,0,0,1,0,0,1,0],
     I:[1,1,1,0,1,0,0,1,0,0,1,0,1,1,1],
+    L:[1,0,0,1,0,0,1,0,0,1,0,0,1,1,1],
+    B:[1,1,0,1,0,1,1,1,0,1,0,1,1,1,0],
+    G:[1,1,1,1,0,0,1,0,1,1,0,1,1,1,1],
     ' ':[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
   };
-  const CONSTELLATION_LINES = ['UNDER', 'CONSTRUCTION'];
+  // The site's whole framing: the skills are still being built, and this
+  // page is literally a building game. Max ~12 chars per line before the
+  // left edge clips (see the centering math below).
+  const CONSTELLATION_LINES = ['STILL', 'BUILDING'];
   const CELL = 0.015;
   const LETTER_W = 3;
   const LETTER_GAP = 1.5;
@@ -80,7 +93,7 @@
 
   // Light up stars near a normalized screen point (0..1 fractions of W/H).
   // Used by the shooting star as it passes and by firework detonations —
-  // a barrage briefly ignites the "UNDER CONSTRUCTION" constellation.
+  // a barrage briefly ignites the "STILL BUILDING" constellation.
   FX.igniteStars = (nx, ny, radius, strength = 1) => {
     stars.forEach(star => {
       const dx = star.x - nx;
@@ -125,7 +138,10 @@
     shootingStar = {
       startX: 0.03,
       startY: 0.02 + Math.random() * 0.03,
-      endX: 0.82,
+      // Lands on the last letter of the lower line. "BUILDING" ends at
+      // x 0.679 (vs "CONSTRUCTION"'s 0.814), so this was pulled in to keep
+      // the sweep matched to the words instead of overshooting them.
+      endX: 0.72,
       endY: 0.12 + Math.random() * 0.04,
       progress: 0,
       speed: 0.18 + Math.random() * 0.06, // progress / second
