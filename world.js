@@ -47,7 +47,15 @@
 
   // Occupancy lookup — the spatial index the matcher and stacking use.
   // Rebuilt on demand; ~a thousand entries worst case, negligible cost.
+  // TWO views of the same world (the heart of the grid physics core):
+  //   occupancy — everything, including a falling block's RESERVED landing
+  //               cell, so aiming/placement can't target a cell that's
+  //               already spoken for;
+  //   settled   — only what is solid RIGHT NOW (landed blocks + monument
+  //               volume), so gravity and support never rest weight on a
+  //               reservation that hasn't landed yet.
   let occupancy = new Map();
+  let settled = new Map();
   let occupancyDirty = true;
   W.markDirty = () => { occupancyDirty = true; };
 
@@ -58,15 +66,25 @@
 
   function rebuildOccupancy() {
     occupancy = new Map();
+    settled = new Map();
     W.blocks.forEach(b => {
-      if (W.isLive(b)) occupancy.set(b.gx + ',' + b.gy + ',' + b.gz, b);
+      if (!W.isLive(b) || b.isDebris) return; // debris is spectacle, not world
+      const k = b.gx + ',' + b.gy + ',' + b.gz;
+      occupancy.set(k, b);
+      if (!b.dropping) settled.set(k, b);
     });
     W.monuments.forEach(m => {
-      m.cells.forEach(c => occupancy.set(c.gx + ',' + c.gy + ',' + c.gz, m));
+      m.cells.forEach(c => {
+        const k = c.gx + ',' + c.gy + ',' + c.gz;
+        occupancy.set(k, m); settled.set(k, m);
+      });
       // The drawn model bulges beyond the recipe's cells (wide lintels,
       // spire tips) — those cells are solid too, or blocks can be placed
       // inside the monument.
-      (m.blocked || []).forEach(c => occupancy.set(c.gx + ',' + c.gy + ',' + c.gz, m));
+      (m.blocked || []).forEach(c => {
+        const k = c.gx + ',' + c.gy + ',' + c.gz;
+        occupancy.set(k, m); settled.set(k, m);
+      });
     });
     occupancyDirty = false;
   }
@@ -75,6 +93,12 @@
   W.at = (gx, gy, gz) => {
     if (occupancyDirty) rebuildOccupancy();
     return occupancy.get(gx + ',' + gy + ',' + gz);
+  };
+
+  // Only what is solid right now (no in-flight reservations)
+  W.settledAt = (gx, gy, gz) => {
+    if (occupancyDirty) rebuildOccupancy();
+    return settled.get(gx + ',' + gy + ',' + gz);
   };
 
   // The block (not monument) at a cell, or undefined
@@ -91,6 +115,73 @@
     let z = 0;
     while (z <= W.MAX_STACK + 1 && W.at(gx, gy, z)) z++;
     return z;
+  };
+
+  // Same scan against only-what-is-solid: where a falling block will land.
+  function settledLandZ(gx, gy) {
+    if (occupancyDirty) rebuildOccupancy();
+    let z = 0;
+    while (z <= W.MAX_STACK && settled.get(gx + ',' + gy + ',' + z)) z++;
+    return z;
+  }
+
+  // ── The grid physics core ───────────────────────────────────
+  // The old model glided every block to a target chosen at SPAWN time and
+  // never looked again. These two entry points make the world the truth:
+  //
+  // retargetFalling — every in-flight block re-aims at what is actually
+  // below it NOW. Falling blocks sharing a column stack their reservations
+  // bottom-up, so two can never claim one cell. Called whenever the world
+  // changes under someone's feet.
+  W.retargetFalling = () => {
+    const cols = new Map();
+    W.blocks.forEach(b => {
+      if (!W.isLive(b) || !b.dropping || b.isDebris) return;
+      const k = b.gx + ',' + b.gy;
+      let list = cols.get(k);
+      if (!list) cols.set(k, list = []);
+      list.push(b);
+    });
+    let changed = false;
+    cols.forEach(list => {
+      list.sort((a, b) => (a.gz + a.dropOffset) - (b.gz + b.dropOffset));
+      let z = settledLandZ(list[0].gx, list[0].gy);
+      list.forEach(d => {
+        const abs = d.gz + d.dropOffset;
+        const target = Math.min(z, W.MAX_STACK);
+        if (target !== d.gz) {
+          d.gz = target;
+          d.dropOffset = Math.max(0, abs - target);
+          changed = true;
+        }
+        z = target + 1;
+      });
+    });
+    if (changed) W.markDirty();
+  };
+
+  // resettle — WEIGHT. Any settled block whose support vanished starts
+  // falling from where it stands (cascading up the stack), then everything
+  // in flight re-aims. Squash/dust/thump fire on each real landing via the
+  // normal impact path. Called after world mutations (pickup, monument
+  // move, ceremony sweep, blast reap, load).
+  W.resettle = () => {
+    if (occupancyDirty) rebuildOccupancy();
+    let knocked = true;
+    while (knocked) {
+      knocked = false;
+      W.blocks.forEach(b => {
+        if (!W.isLive(b) || b.dropping || b.isDebris || b.gz <= 0) return;
+        if (settled.get(b.gx + ',' + b.gy + ',' + (b.gz - 1))) return;
+        b.dropping = true;      // falls from exactly where it is
+        b.dropVel = 0;
+        b.dropOffset = 0;
+        settled.delete(b.gx + ',' + b.gy + ',' + b.gz);
+        knocked = true;
+      });
+    }
+    W.retargetFalling();
+    W.markDirty();
   };
 
   // ── Placement event hook (monuments.js subscribes) ──────────
@@ -162,8 +253,11 @@
         dropOffset: 8 + Math.random() * 6 + gz * 1.5,
         dropDelay: i * 0.05 + Math.random() * 0.066, // staggered arrival
       }));
+      // Per placement, not once at the end: the next getStackHeight must
+      // see this block's reservation, or a burst can aim two blocks at
+      // the same cell (the old same-cell landing race).
+      W.markDirty();
     }
-    W.markDirty();
   };
 
   W.removeBlock = (b) => {
@@ -241,6 +335,7 @@
       }
     }
     W.markDirty();
+    W.resettle(); // normalize: a legacy save with floaters lands them properly
     return i > 0;
   };
 
@@ -391,6 +486,7 @@
           } else {
             b.dropVel = 0;
             b.dropping = false;
+            W.markDirty(); // landing changes what is SOLID (settled map)
             onImpact(b, impactVel);
             if (b._playerPlaced) fireSettled(b);
           }
@@ -410,10 +506,39 @@
         }
       }
     });
+
+    // Falling blocks sharing a column may not pass through each other:
+    // clamp each one to ride at least one cell above the one below it, so
+    // a column falls AS a column and lands in sequence. (Reservations
+    // already guarantee distinct landing cells; this keeps the flight
+    // itself interpenetration-free.)
+    const fallCols = new Map();
+    W.blocks.forEach(b => {
+      if (!b.dropping || !W.isLive(b) || b.isDebris || b.dropDelay > 0) return;
+      const k = b.gx + ',' + b.gy;
+      let list = fallCols.get(k);
+      if (!list) fallCols.set(k, list = []);
+      list.push(b);
+    });
+    fallCols.forEach(list => {
+      if (list.length < 2) return;
+      list.sort((a, b) => (a.gz + a.dropOffset) - (b.gz + b.dropOffset));
+      for (let i = 1; i < list.length; i++) {
+        const below = list[i - 1], d = list[i];
+        const floor = below.gz + below.dropOffset + 1;
+        const abs = d.gz + d.dropOffset;
+        if (abs < floor) {
+          d.dropOffset = floor - d.gz;
+          d.dropVel = Math.min(d.dropVel, below.dropVel); // ride, don't tunnel
+        }
+      }
+    });
+
     const before = W.blocks.length;
     W.blocks = W.blocks.filter(b => !b.blasting || b.opacity > 0);
     if (W.blocks.length !== before) {
       W.markDirty();
+      W.resettle(); // launched blocks vanishing can strand what stood on them
       // The show ends when nothing is launching or waiting to launch
       if (W.onBlastCleared && !W.blocks.some(b => b.blasting || b.preBlast !== null)) {
         const done = W.onBlastCleared;
@@ -579,8 +704,9 @@
     }
 
     // Moonlit rim: highlight the two top edges nearest the moon
+    // (position hoisted to E.li — one moon, and no per-block recompute)
     if (styled) {
-      const moon = { x: 0.82 * E.W, y: 0.13 * E.H };
+      const moon = { x: li.moonSx, y: li.moonSy };
       let best = 0, bestD = Infinity;
       for (let i = 0; i < 4; i++) {
         const d = (topFace[i].x - moon.x) ** 2 + (topFace[i].y - moon.y) ** 2;

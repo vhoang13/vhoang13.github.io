@@ -1,6 +1,6 @@
 /* ============================================================
    fx.js — ambient effects: stars, constellation, shooting star,
-   moon, silhouettes, the angry dog. All timing uses the real
+   moon, silhouettes. All timing uses the real
    clock (dt in seconds), never frame counts.
    ============================================================ */
 (() => {
@@ -116,11 +116,8 @@
       const alpha = Math.min(1, baseAlpha + glowAlpha);
       const sz = s.size * E.SCALE * (1 + s.glow * 1.2);
       if (s.glow > 0.2) {
-        ctx.globalAlpha = s.glow * 0.15;
-        ctx.fillStyle = '#fffbe6';
-        ctx.beginPath();
-        ctx.arc(s.x * E.W, s.y * E.H, sz * 3, 0, Math.PI * 2);
-        ctx.fill();
+        // Ignited-star halo is a LIGHT (bloom pass)
+        E.addLight(s.x * E.W, s.y * E.H, sz * 3, '255,251,230', s.glow * 0.15);
       }
       ctx.globalAlpha = alpha;
       ctx.fillStyle = s.glow > 0.2 ? '#fffbe6' : '#fff';
@@ -191,12 +188,11 @@
   // ── Moon ────────────────────────────────────────────────────
   FX.drawMoon = () => {
     const ctx = E.ctx;
-    const mx = 0.82 * E.W, my = 0.13 * E.H, r = 40 * E.SCALE;
-    const glow = ctx.createRadialGradient(mx, my, r * 0.8, mx, my, r * 3);
-    glow.addColorStop(0, 'rgba(220,220,200,0.08)');
-    glow.addColorStop(1, 'rgba(220,220,200,0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(mx - r * 3, my - r * 3, r * 6, r * 6);
+    const mx = E.MOON.fx * E.W, my = E.MOON.fy * E.H, r = E.MOON.r * E.SCALE;
+    // Only the HALO is a light. The body below stays on the main canvas:
+    // its crescent is carved with an opaque sky-coloured disc, and an
+    // additive buffer cannot represent dark (it would fill back in).
+    E.addLight(mx, my, r * 3, '220,220,200', 0.08);
     ctx.fillStyle = '#e8e4d4';
     ctx.beginPath(); ctx.arc(mx, my, r, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#0d0d1a';
@@ -262,7 +258,7 @@
     while (t === lastUsedType && silhouetteTypes.length > 1);
     lastUsedType = t;
     const right = Math.random() > 0.5;
-    const mx = 0.82 * E.W, my = 0.13 * E.H, r = 40 * E.SCALE;
+    const mx = E.MOON.fx * E.W, my = E.MOON.fy * E.H, r = E.MOON.r * E.SCALE;
     activeSilhouettes.push({
       drawFn: silhouetteTypes[t],
       startX: right ? mx - r * 4 : mx + r * 4,
@@ -370,13 +366,12 @@
       const s = E.toScreen(p.px, p.py, p.pz);
       const sz = p.size * E.SCALE * (0.7 + fade * 0.5);
       const col = p.col || '207,200,184';
-      if (p.glow) { // soft halo behind the spark (firefly idiom)
-        const r = sz * 2.5;
-        const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, r);
-        g.addColorStop(0, `rgba(${col},${fade * 0.35})`);
-        g.addColorStop(1, `rgba(${col},0)`);
-        ctx.fillStyle = g;
-        ctx.fillRect(s.x - r, s.y - r, r * 2, r * 2);
+      if (p.glow) {
+        // Halo is a LIGHT (bloom pass) — was a fresh gradient per spark
+        // per frame, the single heaviest allocation in the game
+        E.addLight(s.x, s.y, sz * 2.5, col, fade * 0.35);
+        // …and the spark body draws additively so it reads as light
+        ctx.globalCompositeOperation = 'lighter';
       }
       ctx.globalAlpha = fade * (p.a0 !== undefined ? p.a0 : 0.5);
       if (p.trail) {
@@ -392,6 +387,7 @@
         ctx.fillStyle = `rgb(${col})`;
         ctx.fillRect(s.x - sz / 2, s.y - sz / 2, sz, sz);
       }
+      if (p.glow) ctx.globalCompositeOperation = 'source-over';
     }
     ctx.globalAlpha = 1;
   };
@@ -422,7 +418,6 @@
 
   FX.updateAndDrawFlashes = (dt) => {
     if (!flashes.length) return;
-    const ctx = E.ctx;
     for (let i = flashes.length - 1; i >= 0; i--) {
       const fl = flashes[i];
       fl.t += dt;
@@ -431,11 +426,7 @@
       const alpha = (f < 0.33 ? f * 3 : 1 - (f - 0.33) / 0.67) * fl.peak;
       const s = E.toScreen(fl.gx, fl.gy, fl.gz);
       const r = E.TILE * E.SCALE * (fl.r0 + f * fl.r1);
-      const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, r);
-      g.addColorStop(0, `rgba(${fl.col},${alpha})`);
-      g.addColorStop(1, `rgba(${fl.col},0)`);
-      ctx.fillStyle = g;
-      ctx.fillRect(s.x - r, s.y - r, r * 2, r * 2);
+      E.addLight(s.x, s.y, r, fl.col, alpha); // blooms ARE light — one registered light each
     }
   };
 
@@ -511,17 +502,17 @@
       f.px += f.vx * dt; f.py += f.vy * dt; f.pz += f.vz * dt;
 
       const s = E.toScreen(f.px, f.py, f.pz);
-      const pulse = 0.5 + 0.5 * Math.sin(clock.time * 2.2 + f.phase);
+      // Pulse is motion — hold it steady for reduced-motion visitors
+      const pulse = E.reducedMotion ? 0.65 : 0.5 + 0.5 * Math.sin(clock.time * 2.2 + f.phase);
       const r = (2 + pulse * 2) * E.SCALE;
-      const glow = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, r * 4);
-      glow.addColorStop(0, `rgba(216,232,106,${0.35 + pulse * 0.3})`);
-      glow.addColorStop(1, 'rgba(216,232,106,0)');
-      ctx.fillStyle = glow;
-      ctx.fillRect(s.x - r * 4, s.y - r * 4, r * 8, r * 8);
+      // Halo is a LIGHT (bloom pass); the body draws additively
+      E.addLight(s.x, s.y, r * 4, '216,232,106', 0.35 + pulse * 0.3);
+      ctx.globalCompositeOperation = 'lighter';
       ctx.fillStyle = `rgba(240,248,180,${0.5 + pulse * 0.5})`;
       ctx.beginPath();
       ctx.arc(s.x, s.y, r * 0.6, 0, Math.PI * 2);
       ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
     }
   };
 
@@ -549,250 +540,4 @@
     }
   };
 
-  // ── Resident dog (trots the platform edge, watches the cursor) ──
-  // Billboard sprite in grid space. Visits every 18-35s while the camera
-  // is idle; scurries off if the world starts rotating. The angry "HEY!"
-  // pop (below) is separate and unchanged.
-  const dog = {
-    state: 'away',            // away | visit
-    nextVisit: 10 + Math.random() * 10,
-    t: 0,
-    gx: 0, gy: 0,             // current position (grid, on the perimeter)
-    dir: 1,                   // walking direction along the edge
-    edge: 0,                  // which perimeter edge (0=front-x, 1=front-y)
-    sitUntil: 0,
-    leaveAt: 0,
-    walking: true,
-  };
-
-  FX.updateAndDrawResidentDog = (dt, input) => {
-    const W = W_();
-    const home = W.monuments.find(m => m.id === 'doghouse');
-
-    if (dog.state === 'away') {
-      // A house of his own draws him out early. (He used to react to
-      // near-miss arrangements too — that job now belongs entirely to
-      // the gold shimmer. The dog is a pet, not a hint.)
-      if (home && dog.nextVisit > clock.time + 3) dog.nextVisit = clock.time + 1.5;
-      if (clock.time > dog.nextVisit && !input.rotating) {
-        dog.state = 'visit';
-        dog.t = 0;
-        // Walk a CAMERA-FACING perimeter edge (so the sprite always draws in
-        // front of the blocks). Front edges = the two that project lowest.
-        const edges = [
-          { edge: 0, fixed: W.GRID_MAX },  // along x, at y = +5
-          { edge: 0, fixed: W.GRID_MIN },  // along x, at y = -5
-          { edge: 1, fixed: W.GRID_MAX },  // along y, at x = +5
-          { edge: 1, fixed: W.GRID_MIN },  // along y, at x = -5
-        ].map(e => {
-          const mid = e.edge === 0
-            ? E.toScreen(0, e.fixed + 0.5, 0)
-            : E.toScreen(e.fixed + 0.5, 0, 0);
-          return { ...e, screenY: mid.y };
-        }).sort((a, b) => b.screenY - a.screenY);
-        const pick = edges[Math.random() > 0.5 ? 0 : 1]; // one of the two front edges
-        dog.edge = pick.edge;
-        dog.fixed = pick.fixed;
-        dog.dir = Math.random() > 0.5 ? 1 : -1;
-        const start = dog.dir === 1 ? W.GRID_MIN - 1 : W.GRID_MAX + 1;
-        if (dog.edge === 0) { dog.gx = start; dog.gy = pick.fixed; }
-        else { dog.gx = pick.fixed; dog.gy = start; }
-        dog.walking = true;
-        dog.sitUntil = 0;
-        dog.leaveAt = clock.time + 9 + Math.random() * 5;
-      }
-      return;
-    }
-
-    // Visiting
-    dog.t += dt;
-    if (input.rotating || clock.time > dog.leaveAt) dog.walking = true; // head for the exit
-
-    const speed = 1.6; // tiles / s
-    const leaving = input.rotating || clock.time > dog.leaveAt;
-    if (home && !leaving) dog.leaveAt = clock.time + 60; // he lives here now
-
-    if (dog.walking) {
-      const step = speed * dt * dog.dir * (leaving ? 1.6 : 1);
-      if (dog.edge === 0) dog.gx += step; else dog.gy += step;
-      const pos = dog.edge === 0 ? dog.gx : dog.gy;
-      // Off either end → gone
-      if (pos < W.GRID_MIN - 1.4 || pos > W.GRID_MAX + 1.4) {
-        dog.state = 'away';
-        dog.nextVisit = clock.time + 18 + Math.random() * 17;
-        return;
-      }
-      // His house pulls him: he stops at the perimeter point nearest it
-      // and watches. (Without a house he just wanders and lounges.)
-      const target = home ? home.cells[0] : null;
-      if (!leaving && target) {
-        const along = dog.edge === 0 ? target.gx : target.gy;
-        const pos2 = dog.edge === 0 ? dog.gx : dog.gy;
-        if (Math.abs(pos2 - along) < 0.3) {
-          dog.walking = false;
-          dog.sitUntil = clock.time + 8 + Math.random() * 3;
-        } else {
-          dog.dir = along > pos2 ? 1 : -1; // walk toward it
-        }
-      } else if (!leaving && pos > W.GRID_MIN + 1 && pos < W.GRID_MAX - 1 && Math.random() < 0.55 * dt) {
-        // Frequent lazy sits — without them he'd march end-to-end on rails
-        dog.walking = false;
-        dog.sitUntil = clock.time + 3 + Math.random() * 3;
-      }
-      // Blocked by a placed block → turn around
-      const cellX = Math.round(dog.edge === 0 ? dog.gx + dog.dir * 0.6 : dog.gx);
-      const cellY = Math.round(dog.edge === 0 ? dog.gy : dog.gy + dog.dir * 0.6);
-      if (W.getStackHeight(cellX, cellY) > 0) dog.dir *= -1;
-    } else if (clock.time > dog.sitUntil) {
-      dog.walking = true;
-    }
-
-    // ── Draw (billboard pixel dog) ──
-    const ctx = E.ctx;
-    const p = E.toScreen(dog.gx + 0.5, dog.gy + 0.5, 0);
-    const s = E.SCALE * 0.55;
-    const bob = dog.walking ? Math.abs(Math.sin(dog.t * 9)) * 2.5 * s : 0;
-    const x = p.x;
-    const y = p.y - bob;
-    // Face the cursor when sitting, else face walking direction
-    let flip = dog.dir;
-    if (!dog.walking && input.pointerX !== null) flip = input.pointerX > x ? 1 : -1;
-
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.scale(flip, 1);
-
-    const sitDrop = dog.walking ? 0 : 3 * s;
-    // Tail (wags faster on the move)
-    const wag = Math.sin(dog.t * (dog.walking ? 10 : 5)) * 0.5;
-    ctx.save();
-    ctx.translate(-11 * s, -14 * s + sitDrop);
-    ctx.rotate(wag * 0.5 - 0.4);
-    ctx.fillStyle = '#6B4226';
-    ctx.fillRect(-8 * s, -1.5 * s, 8 * s, 3 * s);
-    ctx.restore();
-    // Legs (alternating while walking)
-    ctx.fillStyle = '#7a5232';
-    if (dog.walking) {
-      const lp = Math.sin(dog.t * 9) * 2.5 * s;
-      ctx.fillRect(-9 * s, -6 * s, 3 * s, 6 * s + lp);
-      ctx.fillRect(6 * s, -6 * s, 3 * s, 6 * s - lp);
-      ctx.fillRect(-3 * s, -6 * s, 3 * s, 6 * s - lp * 0.7);
-      ctx.fillRect(1 * s, -6 * s, 3 * s, 6 * s + lp * 0.7);
-    } else {
-      ctx.fillRect(-9 * s, -5 * s + sitDrop, 3 * s, 5 * s);
-      ctx.fillRect(6 * s, -5 * s + sitDrop, 3 * s, 5 * s);
-    }
-    // Body
-    ctx.fillStyle = '#8B5E3C';
-    ctx.fillRect(-11 * s, -14 * s + sitDrop, 20 * s, 9 * s);
-    // Head
-    ctx.fillStyle = '#A67B5B';
-    ctx.fillRect(4 * s, -21 * s + sitDrop, 11 * s, 9 * s);
-    // Ear
-    ctx.fillStyle = '#6B4226';
-    ctx.fillRect(4 * s, -23 * s + sitDrop, 4 * s, 4 * s);
-    // Eye + nose
-    ctx.fillStyle = '#1a0f08';
-    ctx.fillRect(10 * s, -18.5 * s + sitDrop, 1.8 * s, 1.8 * s);
-    ctx.fillRect(13.5 * s, -16.5 * s + sitDrop, 2 * s, 2 * s);
-
-    ctx.restore();
-  };
-
-  // ── Angry dog ───────────────────────────────────────────────
-  let angryDog = null;
-
-  FX.showAngryDog = () => {
-    angryDog = { timer: 0, duration: 3 };
-    if (VH.sfx) VH.sfx.bark();
-  };
-
-  FX.drawAngryDog = (dt) => {
-    if (!angryDog) return;
-    const ctx = E.ctx;
-    const d = angryDog;
-    d.timer += dt;
-    if (d.timer > d.duration) { angryDog = null; return; }
-
-    const popDuration = 0.4;
-    const stayUntil = d.duration - 0.5;
-    let slideAmount;
-    if (d.timer < popDuration) {
-      slideAmount = d.timer / popDuration;
-      slideAmount = 1 - Math.pow(1 - slideAmount, 3); // ease out
-    } else if (d.timer > stayUntil) {
-      slideAmount = (d.duration - d.timer) / 0.5;
-    } else {
-      slideAmount = 1;
-    }
-
-    const dogHeight = 90 * E.SCALE;
-    const x = E.W / 2;
-    const y = E.H + dogHeight * (1 - slideAmount);
-    const s = E.SCALE * 1.6;
-    const pawAngle = Math.sin(d.timer * 10) * 0.35;
-
-    ctx.save();
-
-    // Body
-    ctx.fillStyle = '#8B5E3C';
-    ctx.fillRect(x - 12*s, y - 20*s, 24*s, 20*s);
-    // Head
-    ctx.fillStyle = '#A67B5B';
-    ctx.fillRect(x - 14*s, y - 36*s, 28*s, 18*s);
-    // Ears
-    ctx.fillStyle = '#6B4226';
-    ctx.fillRect(x - 16*s, y - 40*s, 6*s, 10*s);
-    ctx.fillRect(x + 10*s, y - 40*s, 6*s, 10*s);
-    // Eyes (angry)
-    ctx.fillStyle = '#000';
-    ctx.fillRect(x - 8*s, y - 30*s, 4*s, 3*s);
-    ctx.fillRect(x + 4*s, y - 30*s, 4*s, 3*s);
-    // Angry eyebrows
-    ctx.fillStyle = '#5a3a1a';
-    ctx.save();
-    ctx.translate(x - 6*s, y - 34*s);
-    ctx.rotate(0.3);
-    ctx.fillRect(-3*s, 0, 8*s, 2.5*s);
-    ctx.restore();
-    ctx.save();
-    ctx.translate(x + 6*s, y - 34*s);
-    ctx.rotate(-0.3);
-    ctx.fillRect(-5*s, 0, 8*s, 2.5*s);
-    ctx.restore();
-    // Nose
-    ctx.fillStyle = '#2a1508';
-    ctx.fillRect(x - 2.5*s, y - 26*s, 5*s, 3*s);
-    // Frown
-    ctx.fillStyle = '#2a1508';
-    ctx.fillRect(x - 6*s, y - 22*s, 12*s, 2*s);
-    ctx.fillRect(x - 7*s, y - 23.5*s, 2*s, 2*s);
-    ctx.fillRect(x + 5*s, y - 23.5*s, 2*s, 2*s);
-    // Bump
-    ctx.fillStyle = '#e05050';
-    ctx.beginPath();
-    ctx.arc(x + 3*s, y - 42*s, 4*s, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#f0d040';
-    ctx.fillRect(x + 1.5*s, y - 43*s, 3*s, 1.2*s);
-    ctx.fillRect(x + 2.5*s, y - 44*s, 1.2*s, 3*s);
-    // Waving paw
-    ctx.save();
-    ctx.translate(x + 14*s, y - 14*s);
-    ctx.rotate(pawAngle);
-    ctx.fillStyle = '#8B5E3C';
-    ctx.fillRect(0, -3*s, 12*s, 6*s);
-    ctx.fillStyle = '#A67B5B';
-    ctx.fillRect(10*s, -4*s, 6*s, 8*s);
-    ctx.restore();
-    // "HEY!" text
-    const bobble = Math.sin(d.timer * 8) * 2;
-    ctx.fillStyle = '#fff';
-    ctx.font = `${Math.max(10, 12 * s)}px "Press Start 2P", monospace`;
-    ctx.textAlign = 'center';
-    ctx.fillText('HEY!', x, y - 50*s + bobble);
-
-    ctx.restore();
-  };
 })();

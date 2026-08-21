@@ -29,10 +29,252 @@
     ctx.imageSmoothingEnabled = false;
     E.SCALE = Math.min(E.W, E.H) / 600;
     E.dirty = true; // cached layers must rebuild
+    if (E._lightResize) E._lightResize();   // keep the light buffer in step
+    if (E._shadowResize) E._shadowResize(); // and the shadow buffer
   }
   E.resize = resize;
   resize();
   window.addEventListener('resize', resize);
+
+  // ── Light pass (bloom) ──────────────────────────────────────
+  // Everything emissive registers itself with E.addLight instead of
+  // painting its own radial gradient onto the scene. Lights collect in an
+  // offscreen HALF-resolution buffer; once per frame (E.lightComposite)
+  // the buffer is blurred and added over the finished scene with
+  // globalCompositeOperation 'lighter' — which is what real bloom is.
+  // The threshold is structural: the scene is never bright-passed, so
+  // glow can only come from things that explicitly call addLight. On an
+  // empty stage with no lamps/fireflies/fireworks this buffer is black.
+  const lightCanvas = document.createElement('canvas');
+  const lightCtx = lightCanvas.getContext('2d');
+  E.LIGHT_GAIN = 0.8; // one global knob for the whole effect
+  E.LIGHT_BLUR = 10;  // CSS px of spread at composite time
+
+  // ctx.filter probe (very old Safari lacks it — fall back, don't fail)
+  const filterOK = (() => {
+    lightCtx.filter = 'blur(1px)';
+    const ok = lightCtx.filter === 'blur(1px)';
+    lightCtx.filter = 'none';
+    return ok;
+  })();
+  const blurScratch = filterOK ? null : document.createElement('canvas');
+
+  E._lightResize = () => {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    lightCanvas.width = Math.max(1, Math.ceil(E.W * dpr / 2));
+    lightCanvas.height = Math.max(1, Math.ceil(E.H * dpr / 2));
+    // Same trick as the main canvas: pre-scale the transform so all
+    // callers keep working in CSS pixels.
+    lightCtx.setTransform(dpr / 2, 0, 0, dpr / 2, 0, 0);
+    // Lights stack like PAINT inside the buffer (saturating, matching the
+    // old per-object gradients) — NOT additively. With 'lighter' here, 25
+    // overlapping lamp pools summed linearly and blew the scene out
+    // (first review verdict: "way too bright"). The single composite of
+    // the finished buffer over the scene stays additive — that's the
+    // bloom; this line is why dense scenes no longer escalate.
+    lightCtx.globalCompositeOperation = 'source-over';
+  };
+  E._lightResize();
+
+  // Soft-dot sprites: one tiny canvas per colour with the falloff baked in
+  // (solid centre -> transparent edge), drawn scaled to any radius. Made
+  // ONCE per colour for the life of the page — this is what replaces the
+  // per-object createRadialGradient calls (hundreds per frame during a
+  // firework Clear) with zero per-frame allocation.
+  const SPRITE_R = 32;
+  const lightSprites = new Map();
+  function lightSprite(rgb) {
+    let s = lightSprites.get(rgb);
+    if (s) return s;
+    s = document.createElement('canvas');
+    s.width = s.height = SPRITE_R * 2;
+    const c = s.getContext('2d');
+    const g = c.createRadialGradient(SPRITE_R, SPRITE_R, 0, SPRITE_R, SPRITE_R, SPRITE_R);
+    g.addColorStop(0, `rgba(${rgb},1)`);
+    g.addColorStop(1, `rgba(${rgb},0)`);
+    c.fillStyle = g;
+    c.fillRect(0, 0, SPRITE_R * 2, SPRITE_R * 2);
+    lightSprites.set(rgb, s);
+    return s;
+  }
+
+  // Register one light for this frame. x/y/radius in CSS px, rgb as
+  // '255,196,90', intensity = the old gradient's peak alpha (0..1).
+  E.addLight = (x, y, radius, rgb, intensity) => {
+    const a = intensity * E.LIGHT_GAIN;
+    if (a <= 0 || radius <= 0) return;
+    lightCtx.globalAlpha = Math.min(1, a);
+    lightCtx.drawImage(lightSprite(rgb), x - radius, y - radius, radius * 2, radius * 2);
+  };
+
+  // Top of the frame: wipe the buffer for this frame's lights.
+  E.lightBegin = () => {
+    lightCtx.save();
+    lightCtx.setTransform(1, 0, 0, 1, 0, 0);
+    lightCtx.globalCompositeOperation = 'source-over';
+    lightCtx.clearRect(0, 0, lightCanvas.width, lightCanvas.height);
+    lightCtx.restore(); // back to the dpr/2 transform + paint-style stacking
+  };
+
+  // End of the frame: blur once, add over the scene. save/restore
+  // guarantees no filter/composite state leaks out of the frame — the
+  // postcard export reads the canvas BETWEEN frames and must see clean
+  // state.
+  E.lightComposite = () => {
+    const c = E.ctx;
+    c.save();
+    c.imageSmoothingEnabled = true; // the buffer upscales 2x; smooth it
+    c.globalCompositeOperation = 'lighter';
+    if (filterOK) {
+      c.filter = `blur(${E.LIGHT_BLUR}px)`;
+      c.drawImage(lightCanvas, 0, 0, lightCanvas.width, lightCanvas.height, 0, 0, E.W, E.H);
+    } else {
+      // No ctx.filter: fake the blur by bouncing through a quarter-res
+      // scratch with smoothing on — softer and cheaper, never a hard fail.
+      blurScratch.width = Math.max(1, lightCanvas.width >> 1);
+      blurScratch.height = Math.max(1, lightCanvas.height >> 1);
+      const sc = blurScratch.getContext('2d');
+      sc.imageSmoothingEnabled = true;
+      sc.drawImage(lightCanvas, 0, 0, blurScratch.width, blurScratch.height);
+      c.drawImage(blurScratch, 0, 0, blurScratch.width, blurScratch.height, 0, 0, E.W, E.H);
+    }
+    c.restore();
+  };
+
+  // ── The moon (single source of truth) ───────────────────────
+  // Screen position + drawn radius were copy-pasted in four files; the
+  // light maths, the drawn moon, the rim highlight and the silhouettes
+  // must all agree or the shadows point away from the visible moon.
+  E.MOON = { fx: 0.82, fy: 0.13, r: 40 };
+  // Altitude in grid units. THE mood knob: lower = longer raking shadows
+  // AND darker sides/tops (both derive from it in updateLightInfo), so
+  // one number keeps light and shadow physically consistent.
+  E.MOON_ALT = 18;
+
+  // ── Shadow pass ─────────────────────────────────────────────
+  // Mirror of the light pass, pointing the other way: every caster
+  // registers one ground-plane quad; quads render into an offscreen
+  // half-res buffer (black, blurred as they are drawn — wider with
+  // caster height), and the buffer composites over the platform ONCE at
+  // E.SHADOW_STRENGTH. Overlaps merge inside the buffer instead of
+  // stacking on the canvas. This replaces the old per-quad fills, which
+  // (a) double-multiplied fillStyle × globalAlpha to ~4.5× fainter than
+  // the constants read, and (b) stacked a 4-high tower ~3.7× darker
+  // than a lone block, with banding.
+  const shadowCanvas = document.createElement('canvas');
+  const shadowCtx = shadowCanvas.getContext('2d');
+  E.SHADOW_STRENGTH = 0.4; // the ONE darkness number (composite alpha)
+  let shadowQuads = [];
+
+  E._shadowResize = () => {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    shadowCanvas.width = Math.max(1, Math.ceil(E.W * dpr / 2));
+    shadowCanvas.height = Math.max(1, Math.ceil(E.H * dpr / 2));
+    shadowCtx.setTransform(dpr / 2, 0, 0, dpr / 2, 0, 0);
+  };
+  E._shadowResize();
+
+  E.shadowBegin = () => {
+    shadowQuads.length = 0;
+    shadowCtx.save();
+    shadowCtx.setTransform(1, 0, 0, 1, 0, 0);
+    shadowCtx.clearRect(0, 0, shadowCanvas.width, shadowCanvas.height);
+    shadowCtx.restore();
+  };
+
+  // Convex hull (monotone chain) of 2D points [[x,y],…] — tiny input
+  // sets (8 points per caster), so cost is negligible.
+  function convexHull(pts) {
+    const s = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cross = (o, a, b) =>
+      (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const lower = [];
+    for (const p of s) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+      lower.push(p);
+    }
+    const upper = [];
+    for (let i = s.length - 1; i >= 0; i--) {
+      const p = s[i];
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+      upper.push(p);
+    }
+    lower.pop(); upper.pop();
+    return lower.concat(upper);
+  }
+
+  // Register one caster VOLUME. The shadow of a box is its whole body
+  // swept along the light direction onto the ground: the base ring and
+  // the top ring both project, and the shadow is the convex hull of the
+  // two (a hexagon). This is what keeps a shadow ATTACHED to its
+  // caster's feet and CONTINUOUS up a stacked pillar — the earlier
+  // top-face-only quads floated away from the base and left gaps.
+  // gx/gy/gz/sxy/sz in grid units (live position, not resting state);
+  // alpha = in-buffer weight (height falloff); dip = platform sink so
+  // shadows land on the real ground plane.
+  E.addShadowBox = (gx, gy, gz, sxy, sz, alpha, dip) => {
+    if (alpha <= 0) return;
+    const bz = Math.max(0, gz); // the underground part of a box casts nothing
+    const tz = gz + sz;
+    if (tz <= bz) return;
+    const li = E.li;
+    const x0 = gx + (1 - sxy) / 2, x1 = gx + (1 + sxy) / 2;
+    const y0 = gy + (1 - sxy) / 2, y1 = gy + (1 + sxy) / 2;
+    const pts = [];
+    for (const z of [bz, tz]) {
+      const ox = z * li.shadowDx, oy = z * li.shadowDy;
+      pts.push([x0 + ox, y0 + oy], [x1 + ox, y0 + oy],
+               [x1 + ox, y1 + oy], [x0 + ox, y1 + oy]);
+    }
+    const d = -(dip || 0);
+    const poly = convexHull(pts).map(p => E.toScreen(p[0], p[1], d));
+    shadowQuads.push({ poly, alpha, h: tz });
+  };
+
+  // Three blur buckets: contact shadows stay tight and grounded, high
+  // casters go wide and soft — the cue that reads as "cast by a light".
+  const SHADOW_BUCKETS = [
+    { maxH: 1.2, blur: 2 },
+    { maxH: 3.0, blur: 5 },
+    { maxH: Infinity, blur: 9 },
+  ];
+
+  // clipPoly: the RECEIVING surface (the platform top, computed per
+  // frame — it rotates and dips). Shadows end where the ground ends: a
+  // floating island casts nothing into the void past its rim.
+  E.shadowComposite = (clipPoly) => {
+    if (!shadowQuads.length) return; // empty stage: buffer was just cleared, skip the blit
+    for (const bk of SHADOW_BUCKETS) {
+      let any = false;
+      for (const q of shadowQuads) {
+        if (q.h > bk.maxH || q.done) continue;
+        q.done = true;
+        if (!any) { shadowCtx.filter = filterOK ? `blur(${bk.blur}px)` : 'none'; any = true; }
+        shadowCtx.globalAlpha = q.alpha;
+        shadowCtx.fillStyle = '#000';
+        shadowCtx.beginPath();
+        shadowCtx.moveTo(q.poly[0].x, q.poly[0].y);
+        for (let k = 1; k < q.poly.length; k++) shadowCtx.lineTo(q.poly[k].x, q.poly[k].y);
+        shadowCtx.closePath();
+        shadowCtx.fill();
+      }
+    }
+    shadowCtx.filter = 'none';
+    shadowCtx.globalAlpha = 1;
+    const c = E.ctx;
+    c.save();
+    if (clipPoly && clipPoly.length >= 3) {
+      c.beginPath();
+      c.moveTo(clipPoly[0].x, clipPoly[0].y);
+      for (let k = 1; k < clipPoly.length; k++) c.lineTo(clipPoly[k].x, clipPoly[k].y);
+      c.closePath();
+      c.clip();
+    }
+    c.imageSmoothingEnabled = true; // half-res buffer upscales; smooth it
+    c.globalAlpha = E.SHADOW_STRENGTH;
+    c.drawImage(shadowCanvas, 0, 0, shadowCanvas.width, shadowCanvas.height, 0, 0, E.W, E.H);
+    c.restore();
+  };
 
   // ── Clock (real time, not frame count) ──────────────────────
   // dt is capped so a backgrounded tab resuming doesn't explode physics.
@@ -149,7 +391,7 @@
   E.updateLightInfo = () => {
     const t = E.TILE * E.SCALE;
     const c = sceneCenter();
-    const mx = 0.82 * E.W, my = 0.13 * E.H;
+    const mx = E.MOON.fx * E.W, my = E.MOON.fy * E.H;
     // Moon direction from scene center → continuous grid coords
     const relX = mx - c.x;
     const relY = my - c.y;
@@ -157,7 +399,7 @@
     const ry = (2 * relY / t - relX / t) / 2;
     const moonGx = rx * E.cosA + ry * E.sinA;
     const moonGy = -rx * E.sinA + ry * E.cosA;
-    const moonGz = 18;
+    const moonGz = E.MOON_ALT; // the live mood knob (see E.MOON above)
     const len = Math.sqrt(moonGx * moonGx + moonGy * moonGy + moonGz * moonGz);
     const lx = moonGx / len, ly = moonGy / len, lz = moonGz / len;
     E.li = {
@@ -166,6 +408,8 @@
       topLight: lz,
       pxLight: lx, nxLight: -lx,
       pyLight: ly, nyLight: -ly,
+      moonSx: mx, moonSy: my, // hoisted: rim highlight reads these per block
+      altitude: moonGz,
     };
   };
 

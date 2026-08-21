@@ -470,21 +470,45 @@
     W.save();
     if (M.onDiscovered) M.onDiscovered(recipe);
 
+    // Clearance for the gather: the tallest thing standing in (or next to)
+    // the gather region. Floaters rise ABOVE it before they drift, so the
+    // path can no longer sweep through a neighbouring tower. Scanned after
+    // instantiate, so the new monument's own volume is cleared too.
+    let clearTop = 0;
+    {
+      const xs = blocks.map(b => b.gx), ys = blocks.map(b => b.gy);
+      const x0 = Math.min(...xs) - 1, x1 = Math.max(...xs) + 1;
+      const y0 = Math.min(...ys) - 1, y1 = Math.max(...ys) + 1;
+      for (let gx = x0; gx <= x1; gx++) {
+        for (let gy = y0; gy <= y1; gy++) {
+          for (let z = W.MAX_STACK; z >= 0; z--) {
+            if (W.at(gx, gy, z)) { clearTop = Math.max(clearTop, z + 1); break; }
+          }
+        }
+      }
+    }
+
     ceremonies.push({
       recipe, t: 0, cx, cy, cz,
       floaters: blocks.map(b => ({
         gx: b.gx, gy: b.gy, gz: b.gz, color: b.color,
+        rise: Math.max(1.1, clearTop + 0.4 - b.gz),
         spin: 0, spinVel: 2 + Math.random() * 3,
       })),
       monument,
       flashed: false,
     });
+
+    // Falling blocks above the pattern re-aim: the monument's volume is
+    // solid from this instant, and nothing may land inside it.
+    W.retargetFalling();
   }
 
   // "Only broken ones": (a) blocks genuinely inside the monument's claimed
-  // or drawn volume, (b) blocks left floating because their support was
-  // consumed — nothing in this game re-settles a placed block, so they'd
-  // hang in mid-air forever. A merely-adjacent block fails both tests and
+  // or drawn volume, (b) chains left standing on the consumed pattern.
+  // This is POLICY, not a physics gap (locked design: wreckage goes up in
+  // fireworks on the flash beat) — W.resettle() handles ordinary lost
+  // support everywhere else. A merely-adjacent block fails both tests and
   // ALWAYS survives.
   function collectDoomed(monument) {
     const solid = new Set();
@@ -525,6 +549,7 @@
     for (let i = ceremonies.length - 1; i >= 0; i--) {
       const c = ceremonies[i];
       c.t += dt;
+      c.floaters.forEach(f => { f.spin += f.spinVel * dt; }); // state here, drawing in pushEntries
 
       if (!c.flashed && c.t >= 0.7) {
         c.flashed = true;
@@ -546,6 +571,7 @@
           W.markDirty();
           W.save(); // AFTER launch: save() filters launching blocks out of the payload
         }
+        W.resettle(); // physics owns whatever the sweep's policy spared
       }
 
       // Pop the model cubes in
@@ -588,7 +614,7 @@
   // identity and the render is pixel-identical.
   M.pushEntries = (entries, dip) => {
     W.monuments.forEach(mon => {
-      if (mon.pending) return; // still mid-ceremony; the ceremony draws it
+      if (mon.pending) return; // still mid-ceremony; its ceremony contributes below
       const keys = mon.model.map(m => E.depthKey(m.gx, m.gy, m.gz)).sort((a, b) => a - b);
       const op = mon._dragging ? 0.45 : 1; // dimmed while being carried
       M.orderedModel(mon).forEach((m, i) => {
@@ -599,68 +625,84 @@
         });
       });
     });
-  };
 
-  // Ceremony visuals draw on top of the world
-  M.drawCeremonies = () => {
-    const ctx = E.ctx;
+    // Ceremony theater joins the SAME depth-sorted pass as everything
+    // else. It used to paint on top of the world after the sort — one of
+    // the two root causes of "blocks glitch through each other": correct
+    // occlusion was impossible by construction.
     ceremonies.forEach(c => {
       if (c.t < 0.75) {
-        // Gathering: consumed blocks lift, spin, drift, glow
+        // Gathering: consumed blocks lift, spin, drift, glow. The RISE
+        // leads the drift (finishes ~60% in), so floaters are above the
+        // clearance height before they travel sideways.
         const p = Math.min(1, c.t / 0.7);
         const ease = 1 - Math.pow(1 - p, 2);
+        const riseEase = 1 - Math.pow(1 - Math.min(1, p * 1.6), 2);
         c.floaters.forEach(f => {
-          f.spin += f.spinVel * VH.clock.dt;
           const gx = f.gx + (c.cx - 0.5 - f.gx) * ease * 0.25;
           const gy = f.gy + (c.cy - 0.5 - f.gy) * ease * 0.25;
-          const gz = f.gz + ease * (E.reducedMotion ? 0.15 : 1.1);
-          const center = E.toScreen(gx + 0.5, gy + 0.5, gz + 0.5);
-          ctx.save();
-          ctx.translate(center.x, center.y);
-          if (!E.reducedMotion) ctx.rotate(Math.sin(f.spin) * 0.35);
-          ctx.translate(-center.x, -center.y);
-          W.drawBlock(gx, gy, gz, f.color, 1, { styled: true });
-          // Glow overlay strengthens as the moment approaches
-          ctx.globalAlpha = ease * 0.55;
-          ctx.fillStyle = '#fff6d8';
-          const t = E.TILE * E.SCALE;
-          ctx.fillRect(center.x - t, center.y - t * 1.4, t * 2, t * 2.6);
-          ctx.globalAlpha = 1;
-          ctx.restore();
+          const gz = f.gz + riseEase * (E.reducedMotion ? 0.15 : f.rise);
+          entries.push({
+            key: E.depthKey(gx, gy, gz),
+            draw: () => drawFloater(f, gx, gy, gz - dip, ease),
+          });
         });
       }
 
       // (The flash is spawned at the c.flashed moment and drawn by
-      // fx.js's shared flash system, right after drawCeremonies.)
+      // fx.js's shared flash system after the sorted pass.)
 
-      // The rising model — same occlusion order as the permanent pass, so
+      // The rising model — same key structure as the permanent pass, so
       // nothing visually snaps when the ceremony ends and pending flips
       if (c.t >= 0.7) {
-        M.orderedModel(c.monument).forEach(m => {
+        const mon = c.monument;
+        const keys = mon.model.map(m => E.depthKey(m.gx, m.gy, m.gz)).sort((a, b) => a - b);
+        M.orderedModel(mon).forEach((m, i) => {
           if (m.pop <= 0) return;
-          const pop = backOut(m.pop);
-          W.drawBlock(m.gx, m.gy, m.gz, m.color, Math.min(1, m.pop * 2),
-            { styled: true, sxy: m.sxy * pop, sz: m.sz * pop });
+          entries.push({
+            key: keys[i] + i * 1e-6,
+            draw: () => {
+              const pop = backOut(m.pop);
+              W.drawBlock(m.gx, m.gy, m.gz - dip, m.color, Math.min(1, m.pop * 2),
+                { styled: true, sxy: m.sxy * pop, sz: m.sz * pop });
+            },
+          });
         });
       }
     });
   };
 
-  // Warm glow pools for monument cells flagged glow (lighthouse lamp, gold tip)
-  M.drawGlows = () => {
+  function drawFloater(f, gx, gy, gz, ease) {
     const ctx = E.ctx;
+    const center = E.toScreen(gx + 0.5, gy + 0.5, gz + 0.5);
+    ctx.save();
+    ctx.translate(center.x, center.y);
+    if (!E.reducedMotion) ctx.rotate(Math.sin(f.spin) * 0.35);
+    ctx.translate(-center.x, -center.y);
+    W.drawBlock(gx, gy, gz, f.color, 1, { styled: true });
+    // Glow overlay strengthens as the moment approaches (additive,
+    // so it reads as light on the block rather than white paint)
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = ease * 0.55;
+    ctx.fillStyle = '#fff6d8';
+    const t = E.TILE * E.SCALE;
+    ctx.fillRect(center.x - t, center.y - t * 1.4, t * 2, t * 2.6);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.restore();
+  }
+
+  // Warm glow for monument cells flagged glow (lighthouse lamp, gold tip)
+  // — registered as LIGHTS for the bloom pass, not painted gradients
+  M.drawGlows = () => {
     const t = E.TILE * E.SCALE;
     W.monuments.forEach(mon => {
       mon.model.forEach(m => {
         if (!m.glow) return;
         const s = E.toScreen(m.gx + 0.5, m.gy + 0.5, m.gz + m.sz / 2);
-        const flicker = 0.8 + 0.2 * Math.sin(VH.clock.time * 2.7 + m.gx * 3 + m.gy);
-        const r = t * 2.4;
-        const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, r);
-        g.addColorStop(0, `rgba(255,214,120,${0.22 * flicker})`);
-        g.addColorStop(1, 'rgba(255,214,120,0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(s.x - r, s.y - r, r * 2, r * 2);
+        const flicker = E.reducedMotion
+          ? 1 : 0.8 + 0.2 * Math.sin(VH.clock.time * 2.7 + m.gx * 3 + m.gy);
+        E.addLight(s.x, s.y, t * 2.4, '255,214,120', 0.22 * flicker);
       });
     });
   };
@@ -757,9 +799,15 @@
       const name = document.createElement('div');
       name.className = 'codex-name';
       name.textContent = isFound ? r.name : '???';
+      if (isFound) {
+        const badge = document.createElement('span');
+        badge.className = 'codex-found';
+        badge.textContent = 'Found';
+        name.appendChild(badge);
+      }
       const hint = document.createElement('div');
       hint.className = 'codex-hint';
-      hint.textContent = isFound ? 'discovered' : r.hint;
+      hint.textContent = r.hint; // ALWAYS the hint — it's the how-to-rebuild reference
       text.appendChild(name); text.appendChild(hint);
       row.appendChild(thumb); row.appendChild(text);
       list.appendChild(row);

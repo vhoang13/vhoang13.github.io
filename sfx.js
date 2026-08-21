@@ -1,6 +1,8 @@
 /* ============================================================
    sfx.js — synthesized sound effects (WebAudio, zero assets)
-   Silent by default; the mute toggle opts in and persists.
+   ON by default; the mute toggle opts out and persists. (Browsers
+   gate audio behind the first user interaction, so the first sound
+   lands on the first click — ensure() resumes the context then.)
    Placement "tock" pitch rises with stack height (musical stacking).
    ============================================================ */
 (() => {
@@ -10,7 +12,7 @@
   const S = (VH.sfx = {});
   const PREF_KEY = 'vh-sound';
 
-  S.enabled = localStorage.getItem(PREF_KEY) === 'on';
+  S.enabled = localStorage.getItem(PREF_KEY) !== 'off'; // on unless muted before
   let actx = null;
   let master = null;
 

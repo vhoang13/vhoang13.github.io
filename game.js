@@ -168,10 +168,27 @@
   }
 
   function restoreDragBlockToOrigin() {
-    // Put the carried block back where it came from (stack may have changed)
-    const gz = W.getStackHeight(dragOrigin.gx, dragOrigin.gy);
-    dragBlock.gx = dragOrigin.gx;
-    dragBlock.gy = dragOrigin.gy;
+    // Put the carried block back where it came from (stack may have
+    // changed). If that column filled to the cap meanwhile, spiral out to
+    // the nearest column with room — never overwrite an occupied cell.
+    let gx = dragOrigin.gx, gy = dragOrigin.gy;
+    let gz = W.getStackHeight(gx, gy);
+    if (gz > W.MAX_STACK) {
+      outer:
+      for (let r = 1; r <= 4; r++) {
+        for (let dx = -r; dx <= r; dx++) {
+          for (let dy = -r; dy <= r; dy++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            const nx = gx + dx, ny = gy + dy;
+            if (!W.isOnPlatform(nx, ny)) continue;
+            const nz = W.getStackHeight(nx, ny);
+            if (nz <= W.MAX_STACK) { gx = nx; gy = ny; gz = nz; break outer; }
+          }
+        }
+      }
+    }
+    dragBlock.gx = gx;
+    dragBlock.gy = gy;
     dragBlock.gz = Math.min(gz, W.MAX_STACK);
     dragBlock.dropOffset = prefersReducedMotion ? 0 : 2;
     dragBlock.dropVel = 0;
@@ -251,6 +268,7 @@
       dragVelX = 0;
       W.hoveredBlock = null;
       W.removeBlock(dragBlock);
+      W.resettle(); // weight: anything that rested on it falls
       if (VH.sfx) VH.sfx.pop();
       canvas.style.cursor = 'grabbing';
     }
@@ -308,12 +326,37 @@
     if (dragMon) {
       const { dx, dy } = dragMonDelta;
       const stillExists = W.monuments.includes(dragMon); // Clear mid-drag guard
-      if (!cancelled && stillExists && (dx || dy) && monumentMoveValid(dragMon, dx, dy)) {
+      const pg = E.toGrid(pointerScreen.x, pointerScreen.y);
+      if (!cancelled && stillExists && !W.isOnPlatform(pg.gx, pg.gy)) {
+        // Released off the platform: the monument tumbles into the void,
+        // same as a block. The DISCOVERY persists — only the built copy
+        // is gone; it can always be rebuilt from its recipe.
+        W.monuments.splice(W.monuments.indexOf(dragMon), 1);
+        if (!prefersReducedMotion) {
+          dragMon.model.forEach(p => {
+            // Fall from the GHOST position (original + drag delta) — the
+            // monument never moves during a drag, so without the offset
+            // the debris dropped from its old spot mid-platform.
+            const d = W.makeDebris(p.gx + dx, p.gy + dy, p.gz, { color: p.color, sxy: p.sxy, sz: p.sz });
+            d.blasting = true;
+            d.blastMode = 'fade';
+            d.blastVelZ = -1 - Math.random() * 2;
+            d.spinVel = (Math.random() - 0.5) * 3;
+            W.blocks.push(d);
+          });
+          E.kickShake(2);
+        }
+        if (VH.sfx) VH.sfx.whoomp();
+        W.markDirty();
+        W.resettle(); // anything stacked on it falls
+        W.save();
+      } else if (!cancelled && stillExists && (dx || dy) && monumentMoveValid(dragMon, dx, dy)) {
         // Commit: shift cells + model, re-derive the blocked volume
         dragMon.cells.forEach(c => { c.gx += dx; c.gy += dy; });
         dragMon.model.forEach(m => { m.gx += dx; m.gy += dy; });
         dragMon.blocked = VH.monuments.blockedCellsFor(dragMon.model, dragMon.cells);
         W.markDirty();
+        W.resettle(); // blocks stacked on the moved monument FALL (user decision)
         W.save();
         if (!prefersReducedMotion) {
           W.kickDip(0.8); // it lands with weight
@@ -352,10 +395,15 @@
     pendingBlock = null;
 
     if (isDragging && dragBlock) {
-      if (!cancelled && hoverGrid && W.isOnPlatform(hoverGrid.gx, hoverGrid.gy)) {
+      // Re-validate at COMMIT time: hoverGrid was computed on the last
+      // pointer move, and the world can change in between (a ceremony
+      // finishing, a block landing). Never trust a stale target.
+      const freshGz = (!cancelled && hoverGrid && W.isOnPlatform(hoverGrid.gx, hoverGrid.gy))
+        ? W.getStackHeight(hoverGrid.gx, hoverGrid.gy) : Infinity;
+      if (freshGz <= W.MAX_STACK) {
         dragBlock.gx = hoverGrid.gx;
         dragBlock.gy = hoverGrid.gy;
-        dragBlock.gz = hoverGrid.gz;
+        dragBlock.gz = freshGz;
         dragBlock.dropOffset = prefersReducedMotion ? 0 : 2;
         dragBlock.dropVel = 0;
         dragBlock.dropDelay = 0;
@@ -363,6 +411,10 @@
         W.blocks.push(dragBlock);
         if (prefersReducedMotion && VH.sfx) VH.sfx.tock(dragBlock.gz, 0.6);
         W.notifyPlaced(dragBlock); // moving a block can complete a pattern
+        W.save();
+      } else if (!cancelled && hoverGrid && W.isOnPlatform(hoverGrid.gx, hoverGrid.gy)) {
+        // Target filled up while carrying → go home instead of overwriting
+        restoreDragBlockToOrigin();
         W.save();
       } else if (cancelled) {
         restoreDragBlockToOrigin();
@@ -374,8 +426,23 @@
           restoreDragBlockToOrigin();
           W.save();
         } else {
-          // Dropped off the platform → the dog objects, block is gone
-          FX.showAngryDog();
+          // Dropped off the platform: it tumbles into the void — real
+          // physics, no scolding. (Reduced motion: it simply vanishes.)
+          if (!prefersReducedMotion) {
+            const g = E.toGrid(pointerScreen.x, pointerScreen.y);
+            dragBlock.gx = g.gx;
+            dragBlock.gy = g.gy;
+            dragBlock.gz = 0;
+            dragBlock.dropping = false;
+            dragBlock.dropOffset = 0;
+            dragBlock.blasting = true;
+            dragBlock.blastMode = 'fade';
+            dragBlock.blastX = 0; dragBlock.blastY = 0; dragBlock.blastZ = 2;
+            dragBlock.blastVelX = 0; dragBlock.blastVelY = 0; dragBlock.blastVelZ = -2;
+            dragBlock.spinVel = (Math.random() - 0.5) * 4;
+            W.blocks.push(dragBlock);
+          }
+          if (VH.sfx) VH.sfx.whoomp();
           W.save();
         }
       }
@@ -704,6 +771,7 @@
     E.updateFaceVectors();
     E.updateLightInfo();
     ctx.clearRect(0, 0, E.W, E.H);
+    E.lightBegin(); // wipe the bloom buffer; emissive draws register into it
 
     // Sky
     const grad = ctx.createLinearGradient(0, 0, 0, E.H);
@@ -724,46 +792,44 @@
     drawPlatform(dip);
     FX.drawGrass();
 
-    // Shadows
-    const { ux, uy } = E.fv;
-    const li = E.li;
-    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    // Shadows — one physical model, no special cases: every caster
+    // projects its full VOLUME from its LIVE position (engine.js
+    // E.addShadowBox), so a falling block's shadow slides in and
+    // sharpens as it lands (no telegraph/moon-shadow handoff blink),
+    // launching blocks cast racing shadows, and monument pillars throw
+    // one continuous shadow attached at their feet. The composite is
+    // clipped to the platform top: no ground, no shadow.
+    const heightFade = (h) => Math.min(1, 1.5 / (h * 0.5 + 1));
+    E.shadowBegin();
     W.blocks.forEach(b => {
-      if (!W.isLive(b)) return; // launching blocks stop casting shadows
       if (b.dropping && b.dropDelay > 0) return; // not on stage yet
-      if (b.dropping) {
-        // Landing telegraph: contact shadow on the surface it will land on,
-        // growing and darkening as the block gets closer.
-        const plane = b.gz; // it drops INTO gz, so the surface below is at gz
-        const proximity = Math.max(0, 1 - b.dropOffset / 8); // 0 far → 1 landed
-        const sRef = E.toScreen(b.gx, b.gy, plane);
-        ctx.globalAlpha = 0.10 + proximity * 0.16;
-        const inset = (1 - (0.55 + proximity * 0.45)) / 2; // shrink toward center when far
-        ctx.beginPath();
-        ctx.moveTo(sRef.x + (ux.x + uy.x) * inset, sRef.y + (ux.y + uy.y) * inset);
-        ctx.lineTo(sRef.x + ux.x * (1 - inset) + uy.x * inset, sRef.y + ux.y * (1 - inset) + uy.y * inset);
-        ctx.lineTo(sRef.x + (ux.x + uy.x) * (1 - inset), sRef.y + (ux.y + uy.y) * (1 - inset));
-        ctx.lineTo(sRef.x + ux.x * inset + uy.x * (1 - inset), sRef.y + ux.y * inset + uy.y * (1 - inset));
-        ctx.closePath();
-        ctx.fill();
-        return;
-      }
-      // Resting blocks: moon-cast shadow on the ground plane
-      const h = b.gz + 1;
-      if (h <= 0) return;
-      const sx = b.gx + h * li.shadowDx;
-      const sy = b.gy + h * li.shadowDy;
-      const sRef = E.toScreen(sx, sy, 0);
-      ctx.globalAlpha = 0.22 * Math.min(1, 1.5 / (h * 0.5 + 1));
-      ctx.beginPath();
-      ctx.moveTo(sRef.x, sRef.y);
-      ctx.lineTo(sRef.x + ux.x, sRef.y + ux.y);
-      ctx.lineTo(sRef.x + ux.x + uy.x, sRef.y + ux.y + uy.y);
-      ctx.lineTo(sRef.x + uy.x, sRef.y + uy.y);
-      ctx.closePath();
-      ctx.fill();
+      if (b.opacity <= 0) return;
+      const live = W.isLive(b);
+      // The SAME live coordinates the draw pass renders from
+      const gx = live ? b.gx : b.gx + b.blastX;
+      const gy = live ? b.gy : b.gy + b.blastY;
+      const gz = live ? b.gz + (b.dropOffset || 0) + (b.lift || 0) : b.gz + b.blastZ;
+      const sxyQ = (1 + b.squash * 0.7) * b.baseSxy;
+      const hTop = gz + (b.baseSz || 1);
+      if (hTop <= 0) return;
+      E.addShadowBox(gx, gy, gz, sxyQ, b.baseSz || 1,
+        heightFade(hTop) * Math.min(1, b.opacity), dip);
     });
-    ctx.globalAlpha = 1;
+    W.monuments.forEach(mon => {
+      if (mon.pending) return; // mid-ceremony: the rise pass owns its pixels
+      const dim = mon._dragging ? 0.45 : 1; // match the dimmed drag look
+      mon.model.forEach(m => {
+        E.addShadowBox(m.gx, m.gy, m.gz, m.sxy, m.sz,
+          heightFade(m.gz + m.sz) * dim, dip);
+      });
+    });
+    // The receiving surface: the platform's top diamond, live-rotated + dipped
+    E.shadowComposite([
+      E.toScreen(W.GRID_MIN, W.GRID_MIN, -dip),
+      E.toScreen(W.GRID_MAX + 1, W.GRID_MIN, -dip),
+      E.toScreen(W.GRID_MAX + 1, W.GRID_MAX + 1, -dip),
+      E.toScreen(W.GRID_MIN, W.GRID_MAX + 1, -dip),
+    ]);
 
     // User blocks + monuments, merged into ONE depth-sorted pass so a
     // block behind a monument draws behind it (and vice versa)
@@ -786,26 +852,22 @@
         const env = Math.min(1, wt / 1.5);
         const pulse = prefersReducedMotion ? 0.65 : 0.5 + 0.5 * Math.sin(clock.time * 4.2);
         const c = E.toScreen(W.warmCenter.gx + 1, W.warmCenter.gy + 1, 0);
-        const r = E.TILE * E.SCALE * 3.5;
-        const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, r);
-        g.addColorStop(0, `rgba(255,217,104,${0.11 * env * (0.7 + 0.3 * pulse)})`);
-        g.addColorStop(1, 'rgba(255,217,104,0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(c.x - r, c.y - r, r * 2, r * 2);
+        E.addLight(c.x, c.y, E.TILE * E.SCALE * 3.5, '255,217,104',
+          0.11 * env * (0.7 + 0.3 * pulse));
       }
     }
-    // Lamp under-glow: warm pools of light beneath lamp blocks (behind blocks)
+    // Lamp light: a wide warm pool + a tighter bright halo above the lamp.
+    // Both are LIGHTS (rendered by the bloom pass), not painted gradients.
     W.blocks.forEach(b => {
       if (b.color !== 'lamp' || !W.isLive(b)) return;
       if (b.dropping && b.dropDelay > 0) return; // not on stage yet
-      const c = E.toScreen(b.gx + 0.5, b.gy + 0.5, b.gz + (b.dropOffset || 0) + 0.5);
-      const r = E.TILE * E.SCALE * 3;
-      const flicker = 0.85 + 0.15 * Math.sin(clock.time * 3.1 + b.gx * 2 + b.gy);
-      const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, r);
-      g.addColorStop(0, `rgba(255,196,90,${0.16 * flicker})`);
-      g.addColorStop(1, 'rgba(255,196,90,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(c.x - r, c.y - r, r * 2, r * 2);
+      const z = b.gz + (b.dropOffset || 0);
+      const flicker = prefersReducedMotion
+        ? 1 : 0.85 + 0.15 * Math.sin(clock.time * 3.1 + b.gx * 2 + b.gy);
+      const pool = E.toScreen(b.gx + 0.5, b.gy + 0.5, z + 0.5);
+      E.addLight(pool.x, pool.y, E.TILE * E.SCALE * 3, '255,196,90', 0.16 * flicker);
+      const top = E.toScreen(b.gx + 0.5, b.gy + 0.5, z + 1.1);
+      E.addLight(top.x, top.y, E.TILE * E.SCALE * 1.1, '255,228,150', 0.35);
     });
 
     sorted.forEach(entry => {
@@ -843,25 +905,17 @@
       }
     });
 
-    // Lamp top-glow: a soft additive halo above each lamp (over blocks)
-    W.blocks.forEach(b => {
-      if (b.color !== 'lamp' || !W.isLive(b)) return;
-      if (b.dropping && b.dropDelay > 0) return; // not on stage yet
-      const c = E.toScreen(b.gx + 0.5, b.gy + 0.5, b.gz + (b.dropOffset || 0) + 1.1);
-      const r = E.TILE * E.SCALE * 1.1;
-      const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, r);
-      g.addColorStop(0, 'rgba(255,228,150,0.35)');
-      g.addColorStop(1, 'rgba(255,228,150,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(c.x - r, c.y - r, r * 2, r * 2);
-    });
+    // (The lamp top-glow lives with the under-glow above — both are
+    // registered lights now, so draw order against blocks no longer
+    // applies: the bloom pass composites over the whole scene.)
 
     // Monument glows (lighthouse lamp room, gold pyramidion)
     VH.monuments.drawGlows();
 
-    // Transform ceremonies: floating blocks, the rising model
+    // Transform ceremonies: state advances here; their DRAWING now lives
+    // inside the depth-sorted pass above (pushEntries), so floaters and
+    // the rising model occlude correctly instead of painting on top.
     VH.monuments.update(dt);
-    VH.monuments.drawCeremonies();
 
     // Blooms: ceremony flashes + firework detonations (behind the sparks)
     FX.updateAndDrawFlashes(dt);
@@ -871,10 +925,6 @@
 
     // Ambient life
     FX.updateAndDrawFireflies(dt);
-    FX.updateAndDrawResidentDog(dt, {
-      pointerX: pointerScreen.x || null,
-      rotating: isRotating || cam.tween !== null,
-    });
 
     // Placement preview while dragging: ghost cube on the landing spot
     if (isDragging && hoverGrid && W.isOnPlatform(hoverGrid.gx, hoverGrid.gy)) {
@@ -906,7 +956,9 @@
       ctx.restore();
     }
 
-    FX.drawAngryDog(dt);
+    // The one light pass: blur the collected lights, add them over the
+    // scene. Leaves the context state clean (postcard export reads it).
+    E.lightComposite();
 
     if (perfMon) perfMon.frame(__perfT0, nowMs);
     requestAnimationFrame(render);
@@ -990,6 +1042,44 @@
     const steps = (e.detail && e.detail.steps) || 1;
     cam.cancelTween();
     cam.snapTo(cam.nearestSnap() + steps * Math.PI / 2, 0.001);
+  });
+  // Physics invariant tripwire: the grid engine must NEVER produce two
+  // settled blocks in one cell, a block inside a monument's volume, or an
+  // unsupported block that isn't falling. Runs continuously under #dev;
+  // fire 'vh-dev-invariant' for an on-demand report.
+  function checkInvariants() {
+    const seen = new Map();
+    const bad = [];
+    W.blocks.forEach(b => {
+      if (!W.isLive(b) || b.dropping || b.isDebris) return;
+      const k = b.gx + ',' + b.gy + ',' + b.gz;
+      if (seen.has(k)) bad.push('two blocks @ ' + k);
+      seen.set(k, b);
+      const v = W.at(b.gx, b.gy, b.gz);
+      if (v && v.color === undefined) bad.push('block inside monument @ ' + k);
+      if (b.gz > 0 && !W.settledAt(b.gx, b.gy, b.gz - 1)) bad.push('floater @ ' + k);
+    });
+    if (bad.length) console.warn('[invariant]', bad.join(' | '));
+    return bad;
+  }
+  setInterval(() => checkInvariants(), 500);
+  document.addEventListener('vh-dev-invariant', () => {
+    const bad = checkInvariants();
+    console.log('[invariant]', bad.length ? bad : 'clean',
+      '| blocks', W.blocks.length, '| monuments', W.monuments.length);
+  });
+  // Live lighting tuning: adjust the knobs without a reload, so
+  // look-review can iterate in seconds while the reviewer watches.
+  // gain/blur = bloom; moon = altitude (lower = longer raking shadows +
+  // darker sides, one physically-coupled knob); shadow = darkness.
+  document.addEventListener('vh-dev-light', (e) => {
+    const d = e.detail || {};
+    if (d.gain !== undefined) E.LIGHT_GAIN = d.gain;
+    if (d.blur !== undefined) E.LIGHT_BLUR = d.blur;
+    if (d.moon !== undefined) E.MOON_ALT = d.moon;
+    if (d.shadow !== undefined) E.SHADOW_STRENGTH = d.shadow;
+    console.log('[dev-light] gain', E.LIGHT_GAIN, 'blur', E.LIGHT_BLUR,
+      'moon', E.MOON_ALT, 'shadow', E.SHADOW_STRENGTH);
   });
   // Perf sampler: measures REAL frame cost over N frames — render() JS time,
   // rAF delta, and gradient allocations per frame (counted by wrapping the
