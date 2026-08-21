@@ -429,6 +429,7 @@
     else if (k >= '1' && k <= '4') {
       selectSlot(['color', 'grass', 'lamp', 'glass'][+k - 1]);
     }
+    else if (k === 'Escape' || k === 'Esc') { closeCodex(); } // hoisted; defined with the codex wiring
   });
 
   // ── Clear / Fireworks ───────────────────────────────────────
@@ -477,14 +478,31 @@
   });
 
   // ── Codex wiring ────────────────────────────────────────────
+  // One open/close path shared by the button, the boot auto-open and
+  // Escape, so the button's label/expanded state can never drift.
   const codex = document.getElementById('codex');
-  document.getElementById('codexBtn').addEventListener('click', (e) => {
+  const codexBtn = document.getElementById('codexBtn');
+  function reflectCodexBtn() {
+    const open = !codex.hidden;
+    codexBtn.setAttribute('aria-expanded', String(open));
+    codexBtn.setAttribute('aria-label', open ? 'Close your collection' : 'Open your collection');
+  }
+  function openCodex() {
+    if (!codex.hidden) return;
+    VH.monuments.buildCodex(); // fresh counts/rows before it becomes visible
+    codex.hidden = false;
+    reflectCodexBtn();
+  }
+  function closeCodex() {
+    if (codex.hidden) return;
+    codex.hidden = true;
+    reflectCodexBtn();
+  }
+  codexBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    const opening = codex.hidden;
-    codex.hidden = !opening;
-    if (opening) VH.monuments.buildCodex();
+    if (codex.hidden) openCodex(); else closeCodex();
   });
-  document.getElementById('codexClose').addEventListener('click', () => { codex.hidden = true; });
+  document.getElementById('codexClose').addEventListener('click', () => closeCodex());
   VH.monuments.onDiscovered = () => {
     W.save();
     VH.monuments.buildCodex(); // refresh counts/rows (cheap; also updates badge)
@@ -675,7 +693,9 @@
   }
 
   // ── Render loop (driven by real time) ───────────────────────
+  let perfMon = null; // set by the #dev vh-dev-perf hook; null for visitors
   function render(nowMs) {
+    const __perfT0 = perfMon ? performance.now() : 0;
     const dt = clock.tick(nowMs);
     const ctx = E.ctx;
 
@@ -888,6 +908,7 @@
 
     FX.drawAngryDog(dt);
 
+    if (perfMon) perfMon.frame(__perfT0, nowMs);
     requestAnimationFrame(render);
   }
 
@@ -970,6 +991,49 @@
     cam.cancelTween();
     cam.snapTo(cam.nearestSnap() + steps * Math.PI / 2, 0.001);
   });
+  // Perf sampler: measures REAL frame cost over N frames — render() JS time,
+  // rAF delta, and gradient allocations per frame (counted by wrapping the
+  // context prototype, so offscreen buffers are counted too). Measure with
+  // the window in FRONT: a hidden tab pauses rAF and the numbers lie.
+  document.addEventListener('vh-dev-perf', (e) => {
+    if (perfMon) { console.warn('[dev-perf] already sampling'); return; }
+    const frames = (e.detail && e.detail.frames) || 300;
+    const label = (e.detail && e.detail.label) || '';
+    const proto = CanvasRenderingContext2D.prototype;
+    const origRad = proto.createRadialGradient;
+    const origLin = proto.createLinearGradient;
+    let radCount = 0, linCount = 0;
+    proto.createRadialGradient = function (...a) { radCount++; return origRad.apply(this, a); };
+    proto.createLinearGradient = function (...a) { linCount++; return origLin.apply(this, a); };
+    const renderMs = [], deltas = [], rads = [], lins = [];
+    let lastNow = null;
+    perfMon = {
+      frame(t0, nowMs) {
+        renderMs.push(performance.now() - t0);
+        if (lastNow !== null) deltas.push(nowMs - lastNow);
+        lastNow = nowMs;
+        rads.push(radCount); lins.push(linCount);
+        radCount = 0; linCount = 0;
+        if (renderMs.length < frames) return;
+        proto.createRadialGradient = origRad;
+        proto.createLinearGradient = origLin;
+        perfMon = null;
+        const avg = a => a.reduce((s, v) => s + v, 0) / a.length;
+        const p95 = a => [...a].sort((x, y) => x - y)[Math.floor(a.length * 0.95)];
+        console.log(`[dev-perf${label ? ' ' + label : ''}]`, JSON.stringify({
+          frames,
+          renderMsAvg: +avg(renderMs).toFixed(3),
+          renderMsP95: +p95(renderMs).toFixed(3),
+          frameDeltaAvg: +avg(deltas).toFixed(2),
+          fps: +(1000 / avg(deltas)).toFixed(1),
+          radialGradAvg: +avg(rads).toFixed(1),
+          radialGradPeak: Math.max(...rads),
+          linearGradAvg: +avg(lins).toFixed(1),
+        }));
+      },
+    };
+    console.log('[dev-perf] sampling', frames, 'frames…');
+  });
   } // end #dev hooks
 
   // ── Boot ────────────────────────────────────────────────────
@@ -989,6 +1053,11 @@
   if (window.matchMedia('(pointer: coarse)').matches) {
     hint.textContent = 'Tap to place blocks · Drag to move · Some shapes become monuments';
   }
+  // Codex opens by default on desktop so a visitor immediately sees there
+  // are 13 monuments to find. Phones keep it shut — it would smother the
+  // game there. Timed to land AFTER .controls settles (600ms + 0.7s
+  // transition) so it reads as emerging from the book icon.
+  const codexAutoOpen = window.matchMedia('(min-width: 601px)').matches;
   if (prefersReducedMotion) {
     panel.classList.add('show');
     controls.classList.add('show');
@@ -996,9 +1065,11 @@
     hint.classList.add('show');
     uiReady = true;
     reflectSwatches();
+    if (codexAutoOpen) openCodex();
   } else {
     setTimeout(() => { panel.classList.add('show'); controls.classList.add('show'); }, 600);
     setTimeout(() => { hotbar.classList.add('show'); uiReady = true; reflectSwatches(); }, 1000);
+    if (codexAutoOpen) setTimeout(openCodex, 1400);
     setTimeout(() => { hint.classList.add('show'); }, 1800);
     setTimeout(() => { hint.classList.remove('show'); }, 7000);
   }

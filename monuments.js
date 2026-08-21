@@ -738,6 +738,7 @@
     const count = document.getElementById('codexCount');
     const badge = document.getElementById('codexBadge');
     if (!list) return;
+    const keepScroll = list.scrollTop; // panel can be open during discovery — don't yank it to the top
     list.innerHTML = '';
     let found = 0;
     // Display order: by difficulty-ish (cell count), found or not
@@ -765,6 +766,7 @@
     });
     if (count) count.textContent = `${found} of ${RECIPES.length} discovered`;
     if (badge) badge.textContent = `${found}/${RECIPES.length}`;
+    list.scrollTop = keepScroll;
   };
 
   // ── Warmer/colder: near-miss detection ──────────────────────

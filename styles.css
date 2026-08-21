@@ -301,6 +301,14 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
   overflow: hidden;
+  /* Replays on every open: [hidden] toggles display, which restarts the
+     animation — a transition would not fire across that boundary. */
+  animation: codex-in 0.45s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+@keyframes codex-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: none; }
 }
 
 .codex-header {
@@ -523,6 +531,7 @@ body {
   .swatches {
     transition: none !important;
   }
+  .codex { animation: none; }
 }
 
 /* ============================================
@@ -544,6 +553,16 @@ body {
     flex-wrap: wrap;
     justify-content: flex-end;
     max-width: 40vw;
+  }
+
+  /* The codex had no phone styles at all: fixed 300px at right 1.5rem
+     overflows a 320px screen. Clamp the width, and clear the controls,
+     which wrap to two rows inside 40vw here (taller than desktop). */
+  .codex {
+    top: 6.5rem;
+    right: 1rem;
+    width: min(300px, calc(100vw - 2rem));
+    max-height: min(560px, calc(100vh - 11rem)); /* stay clear of the hotbar */
   }
 
   .hotbar {
