@@ -240,13 +240,17 @@ body {
 
 .slot {
   position: relative;
-  width: 48px;
-  height: 48px;
+  width: 54px;
+  height: 62px;   /* icon + name caption */
   padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.04);
   cursor: pointer;
+  /* The bar is a drag SOURCE (press a slot, drag onto the platform), so it
+     owns its touches exactly like the canvas does — without this a phone
+     claims the drag as a page gesture and it dies on the first move. */
+  touch-action: none;
   transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
 }
 
@@ -268,16 +272,34 @@ body {
   image-rendering: pixelated;
 }
 
+/* Top-right, not bottom-right: the name caption owns the bottom now */
 .slot-key {
   position: absolute;
   right: 4px;
-  bottom: 2px;
+  top: 3px;
   font-family: var(--font-pixel);
   font-size: 0.4rem;
   color: var(--color-text-dim);
 }
 
 .slot.selected .slot-key {
+  color: var(--color-accent);
+}
+
+/* Sans, not the pixel face: at 9px 'Press Start 2P' is unreadable, and
+   this word is the whole point of the caption. */
+.slot-name {
+  display: block;
+  margin-top: 1px;
+  font-family: var(--font-sans);
+  font-size: 0.5625rem;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: var(--color-text-dim);
+  transition: color 0.15s ease;
+}
+
+.slot.selected .slot-name {
   color: var(--color-accent);
 }
 
@@ -356,6 +378,65 @@ body {
   padding: 0.35rem 0.45rem;
   border-radius: 9px;
 }
+
+/* Locked rows are BUTTONS (the plan must be keyboard-reachable), so undo
+   the UA button chrome and keep them reading as list rows. */
+button.codex-row {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+button.codex-row:hover,
+button.codex-row:focus-visible { background: rgba(255, 255, 255, 0.05); }
+
+/* Locked thumbnail: a neutral plate, NOT the monument silhouette. The
+   model never resembles its recipe (the torii's gap is carved by the
+   transform), so showing it taught a shape that can never match. A div,
+   not a canvas: nothing to draw, and canvas can't carry generated text. */
+.codex-plate {
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px dashed rgba(255, 255, 255, 0.13);
+  border-radius: 8px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+/* The affordance: a hint system nobody can find is no hint system. */
+.codex-reveal {
+  display: inline-block;
+  margin-top: 0.28rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #8fb7ff;
+}
+/* Disclosure, not a link: the plan opens and shuts. */
+.codex-reveal::after { content: ' \25B8'; }
+.codex-row.open .codex-reveal::after { content: ' \25BE'; }
+button.codex-row:hover .codex-reveal { color: #b6d0ff; }
+
+/* The revealed plan: generated from the cell data, so it can never drift
+   from the truth. Carries the constraints the game never stated. */
+/* Blueprints get more room than monument thumbnails: a 3x3 recipe with
+   dashed empty cells is unreadable at 44px. */
+.codex-row.open .codex-thumb { width: 58px; height: 58px; }
+
+.codex-plan {
+  margin-top: 0.28rem;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: #8fb7ff;
+  animation: plan-in 0.25s ease-out;
+}
+@keyframes plan-in { from { opacity: 0; } to { opacity: 1; } }
 
 .codex-row + .codex-row { margin-top: 0.15rem; }
 
@@ -457,7 +538,7 @@ body {
    ============================================ */
 .swatches {
   position: fixed;
-  bottom: 5rem; /* just above the hotbar */
+  bottom: 5.9rem; /* just above the hotbar (+0.875rem when slots gained captions) */
   left: 50%;
   transform: translateX(-50%) translateY(6px);
   z-index: 10;
@@ -507,7 +588,7 @@ body {
    ============================================ */
 .hint {
   position: fixed;
-  bottom: 8.2rem; /* above the hotbar AND the swatch row */
+  bottom: 9.1rem; /* above the hotbar AND the swatch row (+0.875rem for captions) */
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
@@ -548,6 +629,7 @@ body {
     transition: none !important;
   }
   .codex { animation: none; }
+  .codex-plan { animation: none; }
 }
 
 /* ============================================
@@ -588,8 +670,8 @@ body {
   }
 
   .slot {
-    width: 44px;  /* touch-target floor */
-    height: 44px;
+    width: 48px;  /* ≥44px touch-target floor */
+    height: 58px; /* icon + name caption */
   }
 
   .slot-icon {
@@ -598,8 +680,12 @@ body {
     margin-top: 5px;
   }
 
+  .slot-name {
+    font-size: 0.5rem;
+  }
+
   .swatches {
-    bottom: 4.4rem;
+    bottom: 5.3rem;
   }
 
   .swatch {
@@ -608,10 +694,14 @@ body {
   }
 
   .hint {
-    bottom: 7.4rem;
+    bottom: 8.3rem;
     font-size: 0.625rem;
     max-width: 92vw;
     white-space: normal;
     text-align: center;
   }
 }
+
+/* Sound button quiet state: inner wave only — the outer arc dims.
+   (Off keeps the existing slash; both wave paths share .snd-waves.) */
+#soundBtn.quiet .snd-wave-2 { opacity: 0.25; }

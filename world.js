@@ -25,12 +25,32 @@
     dirt:   { top: '#8b6b3d', right: '#5c4428', front: '#745832' },
     lamp:   { top: '#ffe9a8', right: '#e0ae4a', front: '#f2c968' },
     glass:  { top: '#d5ecf4', right: '#9dc4d4', front: '#bcdae6' },
-    // Monument palette — reads as carved stone against the toy colors
+    // Monument palette — reads as carved stone against the toy colors.
+    // NEVER rename or remove a key: saved monuments reference them.
     stone:      { top: '#e2dccb', right: '#a99f8a', front: '#c9c1ac' },
     stoneDark:  { top: '#b8b09c', right: '#847b68', front: '#a2977f' },
     gold:       { top: '#ffd968', right: '#c99a2e', front: '#edbc4a' },
     lightRed:   { top: '#e05050', right: '#a83636', front: '#c84343' },
     lightWhite: { top: '#f4f0e6', right: '#c0b9a8', front: '#e0d9c8' },
+    // True-to-reference monument colours (2026-08 detail pass). Monument-
+    // only: not in BLOCK_COLORS, so none are placeable. Fronts stay bright
+    // enough to read as firework sparks (debris keeps its piece colour).
+    vermilion:    { top: '#ef5f45', right: '#b93a28', front: '#d84b35' }, // torii columns
+    kasagiBlack:  { top: '#454b54', right: '#272b31', front: '#363b42' }, // torii top lintel
+    copper:       { top: '#8a5a3c', right: '#5e3a26', front: '#744a30' }, // torii roof plates
+    travertine:   { top: '#e8dfc8', right: '#b3a684', front: '#d0c5a6' }, // colosseum
+    travertineDark:{ top: '#c9bda0', right: '#948a6d', front: '#b0a486' },
+    marble:       { top: '#f2efe6', right: '#bfbaa9', front: '#dcd7c6' }, // parthenon / arc
+    marbleShadow: { top: '#d8d3c4', right: '#a09a89', front: '#c0baa9' },
+    ironBronze:   { top: '#8a6a4f', right: '#5a4232', front: '#71543e' }, // eiffel brown
+    sarsenGrey:   { top: '#b9b5ac', right: '#807c74', front: '#9d9990' }, // stonehenge
+    brickGrey:    { top: '#a8a49c', right: '#6f6c65', front: '#8d8a82' }, // great wall
+    brickDark:    { top: '#8b8880', right: '#5a5750', front: '#74716a' },
+    paleIronBlue: { top: '#b9cede', right: '#7f96aa', front: '#9fb5c7' }, // crystal palace frame
+    trimYellow:   { top: '#e8c964', right: '#b2933f', front: '#cfae51' }, // crystal palace trim
+    girderRed:    { top: '#c25548', right: '#8e372d', front: '#aa463a' }, // crystal palace girders
+    graniteRose:  { top: '#d9a08e', right: '#a06a5c', front: '#c08575' }, // obelisk (Luxor granite)
+    sand:         { top: '#e2d3ab', right: '#ab9c77', front: '#c9ba92' }, // arena floor
   };
   W.BLOCK_COLORS = ['red', 'blue', 'green', 'yellow', 'orange', 'purple', 'cyan', 'pink', 'white'];
 
@@ -131,8 +151,11 @@
   //
   // retargetFalling — every in-flight block re-aims at what is actually
   // below it NOW. Falling blocks sharing a column stack their reservations
-  // bottom-up, so two can never claim one cell. Called whenever the world
-  // changes under someone's feet.
+  // bottom-up so they can't claim one cell — with one known edge: a column
+  // already AT MAX_STACK clamps every extra in-flight reservation to the
+  // top cell, so two blocks arriving over a full column can double-book it
+  // (rare; needs two drops in flight over a column with one slot left).
+  // Called whenever the world changes under someone's feet.
   W.retargetFalling = () => {
     const cols = new Map();
     W.blocks.forEach(b => {
@@ -167,6 +190,7 @@
   // move, ceremony sweep, blast reap, load).
   W.resettle = () => {
     if (occupancyDirty) rebuildOccupancy();
+    const landings = new Map(); // monument → total cells fallen; hook fires ONCE, after
     let knocked = true;
     while (knocked) {
       knocked = false;
@@ -179,10 +203,68 @@
         settled.delete(b.gx + ',' + b.gy + ',' + b.gz);
         knocked = true;
       });
+      // MONUMENTS have weight too — same law, applied to the whole body.
+      // (An obelisk built on a block hung in the air when that block was
+      // picked up: this loop only ever knocked blocks, and nothing else in
+      // the project even LOOKED at monument support — 2026-08-24.)
+      W.monuments.forEach(mon => {
+        if (mon.pending) return; // mid-ceremony: startCeremony reaps the source
+                                 // blocks then calls resettle on the flash beat —
+                                 // the rise owns the body until pending clears
+        // Lowest cell per footprint column; supported if ANY column rests
+        // on the ground or on something solid that isn't this monument.
+        // "Any" is deliberate: a monument may perch on a partial ledge.
+        const bottoms = new Map();
+        mon.cells.forEach(c => {
+          const k = c.gx + ',' + c.gy;
+          const cur = bottoms.get(k);
+          if (cur === undefined || c.gz < cur) bottoms.set(k, c.gz);
+        });
+        let supported = false;
+        bottoms.forEach((gz, k) => {
+          if (supported) return;
+          if (gz <= 0) { supported = true; return; }
+          const v = settled.get(k + ',' + (gz - 1));
+          if (v !== undefined && v !== mon) supported = true;
+        });
+        if (supported) return;
+        // Fall by the MINIMUM drop over the footprint, so no column can
+        // land inside whatever sits lower in a neighbouring column.
+        let drop = Infinity;
+        bottoms.forEach((gz, k) => {
+          let d = 0;
+          for (let z = gz - 1; z >= 0; z--) {
+            const v = settled.get(k + ',' + z);
+            if (v !== undefined && v !== mon) break;
+            d++;
+          }
+          drop = Math.min(drop, d);
+        });
+        if (!isFinite(drop) || drop <= 0) return;
+        // Land instantly — mirrors the drag-commit geometry (game.js):
+        // shift cells + model, re-derive the blocked volume.
+        mon.cells.forEach(c => { c.gz -= drop; });
+        mon.model.forEach(p => { p.gz -= drop; });
+        if (VH.monuments && VH.monuments.blockedCellsFor) {
+          mon.blocked = VH.monuments.blockedCellsFor(mon.model, mon.cells);
+        } else {
+          (mon.blocked || []).forEach(c => { c.gz -= drop; });
+          mon.blocked = (mon.blocked || []).filter(c => c.gz >= 0);
+        }
+        landings.set(mon, (landings.get(mon) || 0) + drop);
+        rebuildOccupancy(); // old cells free, new cells solid — recompute truth
+        knocked = true;     // its landing may support (or strand) something else
+      });
     }
     W.retargetFalling();
     W.markDirty();
+    if (W.onMonumentLanded) landings.forEach((drop, mon) => W.onMonumentLanded(mon, drop));
   };
+
+  // Optional landing feedback, registered by game.js (dip/dust/tock live
+  // there) — same pattern as notifyPlaced → onBlockSettled below. Fired
+  // once per monument per resettle with the TOTAL distance fallen.
+  W.onMonumentLanded = null;
 
   // ── Placement event hook (monuments.js subscribes) ──────────
   // Fired ONLY for deliberate player placements — never for the random
@@ -192,7 +274,12 @@
   W.notifyPlaced = (b) => {
     W.markDirty();
     b._playerPlaced = true;
-    if (!b.dropping) fireSettled(b); // reduced motion: lands instantly
+    b.tumbles = 0; // a fresh placement gets a fresh roll-off budget
+    if (!b.dropping) {
+      tryTumble(b);  // reduced motion never enters the falling path; the
+                     // reduced branch relocates in place and returns false
+      fireSettled(b);
+    }
   };
   function fireSettled(b) {
     b._playerPlaced = false;
@@ -223,6 +310,8 @@
     // Game feel
     squash: 0, squashVel: 0,          // squash-and-stretch spring
     lift: 0,                          // hover lift (grid units)
+    slideX: 0, slideY: 0,             // tumble roll-off: visual pos = logical + slide, eased to 0
+    tumbles: 0,                       // roll-off hops this drop (capped — see tryTumble)
     shade: (Math.random() * 2 - 1),   // per-block lightness jitter (±)
     spin: 0, spinVel: 0,              // tumbling while blasted
     preBlast: null,                   // seconds until launch (anticipation + shockwave stagger)
@@ -238,7 +327,8 @@
     b.dropping = false;
     b.dropOffset = 0;
     b.dropDelay = 0;
-    b.baseSxy = opts.sxy;
+    // Rect pieces tumble as squares (spin makes the difference invisible)
+    b.baseSxy = opts.sy != null ? Math.max(opts.sxy, opts.sy) : opts.sxy;
     b.baseSz = opts.sz;
     b.isDebris = true;
     return b;
@@ -285,17 +375,13 @@
           id: m.id,
           name: m.name,
           cells: m.cells.map(c => [c.gx, c.gy, c.gz]),
-          model: m.model.map(p => [p.gx, p.gy, p.gz, p.sxy, p.sz, p.color, p.glow ? 1 : 0]),
+          // p[7] = sy (rect pieces); older loads simply ignore the extra slot
+          model: m.model.map(p => [p.gx, p.gy, p.gz, p.sxy, p.sz, p.color, p.glow ? 1 : 0, p.sy]),
         })),
         discovered: M ? [...M.discovered] : [],
       };
       try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (_) { /* full/blocked */ }
     }, 300);
-  };
-
-  W.clearSave = () => {
-    clearTimeout(saveTimer);
-    try { localStorage.removeItem(SAVE_KEY); } catch (_) {}
   };
 
   // Restore a saved build; returns true if anything was loaded
@@ -317,12 +403,20 @@
     if (data.v === 2) {
       (data.monuments || []).forEach(m => {
         if (!Array.isArray(m.cells) || !Array.isArray(m.model)) return;
+        // The MODEL is derived from the recipe when possible, not trusted
+        // from the save: model art improves between visits, and a save
+        // written before a redesign would otherwise pin the old look
+        // forever. The stored cells give origin + rotation; the stored
+        // pieces remain as the fallback for unknown/changed recipes.
+        if (VH.monuments && VH.monuments.reinstantiate &&
+            VH.monuments.reinstantiate(m.id, m.cells)) { i++; return; }
         const mon = {
           id: m.id,
           name: m.name,
           cells: m.cells.map(c => ({ gx: c[0], gy: c[1], gz: c[2] })),
           model: m.model.map(p => ({
-            gx: p[0], gy: p[1], gz: p[2], sxy: p[3], sz: p[4], color: p[5], glow: !!p[6], pop: 1,
+            gx: p[0], gy: p[1], gz: p[2], sxy: p[3], sz: p[4], color: p[5], glow: !!p[6],
+            sy: p[7] != null ? p[7] : p[3], pop: 1,
           })),
         };
         // blocked is DERIVED, never saved (monuments.js loads before us)
@@ -336,6 +430,26 @@
     }
     W.markDirty();
     W.resettle(); // normalize: a legacy save with floaters lands them properly
+    // A save is debounced 300 ms but the tumble decides at LANDING (~400 ms
+    // after placement), so a save written in between can freeze a block on
+    // a bad perch. In normal mode the welcome-back cascade re-drops every
+    // loaded block, so the landing path re-runs the check itself (verified
+    // e2e). REDUCED MOTION loads blocks in place — dropping false — and
+    // would keep the frozen perch forever without this sweep: instant
+    // relocation, no roll theater (this is a load).
+    if (W.TUMBLE) {
+      W.blocks.forEach(b => {
+        if (!W.isLive(b) || b.isDebris || b.dropping || b.gz <= 0) return;
+        if (goodFooting(b.gx, b.gy, b.gz)) return;
+        const below = W.settledAt(b.gx, b.gy, b.gz - 1);
+        if (below === undefined || below.color !== undefined) return;
+        const dest = rollTarget(b);
+        if (!dest) return;
+        b.gx = dest.gx; b.gy = dest.gy; b.gz = dest.gz;
+        W.markDirty(); // per move: the next block's scan must see this one
+      });
+      W.resettle(); // a relocated block may have carried a stack on its back
+    }
     return i > 0;
   };
 
@@ -413,14 +527,103 @@
   function detonate(b) {
     const gx = b.gx + b.blastX, gy = b.gy + b.blastY, gz = b.gz + b.blastZ;
     if (VH.fx) {
-      VH.fx.spawnBurst(gx, gy, gz, b.color, b.isDebris ? 8 : 12);
+      // 9/6 (was 12/8): embers now live ~3× longer, so fewer per shell
+      // keeps the shared particle budget honest across a full barrage
+      VH.fx.spawnBurst(gx, gy, gz, b.color, b.isDebris ? 6 : 9);
       VH.fx.spawnFlash(gx + 0.5, gy + 0.5, gz + 0.5,
         { dur: 0.28, r0: 0.8, r1: 4.5, peak: 0.7, colorKey: b.color });
       const s = E.toScreen(gx + 0.5, gy + 0.5, gz + 0.5);
       VH.fx.igniteStars(s.x / E.W, s.y / E.H, 0.10, 0.55);
     }
     E.kickShake(1.2);
-    if (VH.sfx) VH.sfx.boom(Math.min(1.3, Math.max(0.6, 0.6 + gz * 0.05)));
+    // Position → stereo pan; boomCls routes leftover-sweep shells to their
+    // own (quieter, darker, wetter) budget so they can't trample a ceremony
+    if (VH.sfx) VH.sfx.boom(Math.min(1.3, Math.max(0.6, 0.6 + gz * 0.05)),
+      { gx, gy, gz }, { cls: b.boomCls });
+  }
+
+  // ── The tumble: "no" with personality ───────────────────────
+  // A block that settles on a monument where the sculpture doesn't really
+  // reach it (thin cover, or an air gap under its feet — the "perch"
+  // measurements in HANDOFF.md) doesn't hover: it teeters and ROLLS OFF to
+  // the nearest column with honest footing. Nearest, never random — a
+  // block that teleports unpredictably is maddening when you're building
+  // an exact recipe shape; one that visibly rolls one tile reads as
+  // physics. The matcher is NOT fired at the perch: fireSettled runs only
+  // at the block's final resting place, which is what the player sees.
+  W.TUMBLE = true; // vh-dev-tumble flips this off to prove the harness bites
+
+  function goodFooting(gx, gy, lz) {
+    if (lz <= 0) return true;
+    const below = W.settledAt(gx, gy, lz - 1);
+    if (below === undefined) return false;
+    if (below.color !== undefined) return true; // a block: fills its cell
+    const M = VH.monuments;
+    if (!M || !M.perchUnder) return true;
+    const p = M.perchUnder(gx, gy, lz);
+    return p.cover >= M.PERCH_MIN_COVER && p.gap <= M.PERCH_MAX_GAP;
+  }
+
+  // Nearest column (ring scan, fixed order — deterministic) whose own
+  // landing spot has honest footing and room. Same scan shape as
+  // game.js restoreDragBlockToOrigin.
+  function rollTarget(b) {
+    for (let r = 1; r <= 4; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dy = -r; dy <= r; dy++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const nx = b.gx + dx, ny = b.gy + dy;
+          if (!W.isOnPlatform(nx, ny)) continue;
+          const lz = settledLandZ(nx, ny);
+          if (lz > W.MAX_STACK) continue;
+          if (lz > b.gz) continue; // gravity: roll down or level, never up
+          if (!goodFooting(nx, ny, lz)) continue;
+          return { gx: nx, gy: ny, gz: lz };
+        }
+      }
+    }
+    return null;
+  }
+
+  // Called at the FINAL settle (not on a bounce). True → the block is
+  // rolling again: caller must keep it dropping and must NOT fire the
+  // matcher. False → settle normally (good footing, hop cap reached, or
+  // nowhere sensible to go — settling beats vanishing or looping).
+  function tryTumble(b, impactVel) {
+    if (!W.TUMBLE || b.isDebris || !W.isLive(b) || b.gz <= 0) return false;
+    if (goodFooting(b.gx, b.gy, b.gz)) return false;
+    const below = W.settledAt(b.gx, b.gy, b.gz - 1);
+    if (below === undefined || below.color !== undefined) return false; // only monument perches roll
+    b.tumbles = (b.tumbles || 0) + 1;
+    if (b.tumbles > 4) return false;
+    const dest = rollTarget(b);
+    if (!dest) return false;
+    if (E.reducedMotion) {
+      // No sideways theater: appear at the destination, settle normally.
+      // No impact here either — returning false sends the caller down its
+      // normal settle path, which fires onImpact at the RELOCATED coords,
+      // exactly where the block now visibly is.
+      b.gx = dest.gx; b.gy = dest.gy; b.gz = dest.gz;
+      b.slideX = 0; b.slideY = 0;
+      W.markDirty();
+      W.retargetFalling();
+      return false;
+    }
+    // The touch-and-teeter beat fires HERE, while gx/gy still point at the
+    // perch — after the relocation below, the dust and thud would appear
+    // one tile over at the destination.
+    if (impactVel !== undefined) onImpact(b, impactVel);
+    // Visual position stays put (slide = old − new) and eases to 0 while
+    // the block falls the rest of the way — it arcs sideways and down.
+    b.slideX = (b.slideX || 0) + (b.gx - dest.gx);
+    b.slideY = (b.slideY || 0) + (b.gy - dest.gy);
+    const fromZ = b.gz;
+    b.gx = dest.gx; b.gy = dest.gy; b.gz = dest.gz;
+    b.dropOffset = Math.max(0.001, fromZ - dest.gz);
+    b.dropVel = 0;
+    W.markDirty();
+    W.retargetFalling();
+    return true;
   }
 
   function onImpact(b, impactVel) {
@@ -432,7 +635,7 @@
         VH.fx.spawnDust(b.gx, b.gy, b.gz, Math.round(4 + strength * 6));
       }
     }
-    if (strength > 0.2 && VH.sfx) VH.sfx.tock(b.gz, strength); // musical stacking
+    if (strength > 0.2 && VH.sfx) VH.sfx.tock(b.gz, strength, b); // musical stacking, panned
     // Compression ripple down the stack below
     W.blocks.forEach(o => {
       if (o !== b && o.gx === b.gx && o.gy === b.gy && o.gz < b.gz && !o.blasting) {
@@ -460,6 +663,15 @@
       const liftTarget = (b === W.hoveredBlock) ? 0.12 : 0;
       b.lift += (liftTarget - b.lift) * Math.min(1, 12 * dt);
 
+      // Tumble slide eases home — the sideways half of the roll-off arc
+      if (b.slideX || b.slideY) {
+        const k = Math.min(1, 10 * dt);
+        b.slideX += -b.slideX * k;
+        b.slideY += -b.slideY * k;
+        if (Math.abs(b.slideX) < 0.01) b.slideX = 0;
+        if (Math.abs(b.slideY) < 0.01) b.slideY = 0;
+      }
+
       // Anticipation countdown → launch (shockwave stagger)
       if (b.preBlast !== null) {
         b.preBlast -= dt;
@@ -483,6 +695,10 @@
           if (Math.abs(b.dropVel) > BOUNCE_MIN_VEL) {
             b.dropVel = Math.abs(b.dropVel) * BOUNCE; // bounce back up
             onImpact(b, impactVel);
+          } else if (tryTumble(b, impactVel)) {
+            // Bad perch: the teeter beat fired inside tryTumble at the
+            // perch coords; the block is falling again — no fireSettled,
+            // the matcher waits for the real resting place
           } else {
             b.dropVel = 0;
             b.dropping = false;
@@ -563,7 +779,13 @@
     }
   }
 
+  // Smallest largest-dimension that still earns outlines + moonlit rim
+  const STROKE_MIN = 0.35;
+
   // opts: sxy/sz   squash scale (width / height)
+  //       sy       y-axis footprint (defaults to sxy) — RECTANGULAR pieces.
+  //                Before this, every beam/lintel was secretly a square
+  //                slab (the torii lintel rendered as a table top).
   //       styled   full treatment: outlines, moonlit rim, shade jitter
   //       shade    per-block lightness jitter (−1..1)
   //       contact  darken the base of side faces (resting on something)
@@ -575,17 +797,23 @@
     if (!col) return;
     const ctx = E.ctx;
     const sxy = opts.sxy || 1;
+    const sy = opts.sy != null ? opts.sy : sxy;
     const sz = opts.sz || 1;
     // Squash widens the footprint; keep the block centered on its cell
-    const ref = E.toScreen(gx + (1 - sxy) / 2, gy + (1 - sxy) / 2, gz);
+    const ref = E.toScreen(gx + (1 - sxy) / 2, gy + (1 - sy) / 2, gz);
     const fv = E.fv;
     const ux = { x: fv.ux.x * sxy, y: fv.ux.y * sxy };
-    const uy = { x: fv.uy.x * sxy, y: fv.uy.y * sxy };
+    const uy = { x: fv.uy.x * sy, y: fv.uy.y * sy };
     const uz = { x: fv.uz.x * sz, y: fv.uz.y * sz };
     const { xVisible, yVisible } = fv;
     const li = E.li;
     const opp = { x: ref.x + ux.x + uy.x + uz.x, y: ref.y + ux.y + uy.y + uz.y };
     const styled = opts.styled;
+    // Small-detail pieces skip outlines + rim: 1px strokes on a 0.2-wide
+    // finial read as noise, and strokes are the expensive canvas op —
+    // dense monument models pay for this twice over. (Sibling threshold:
+    // monuments.js castsShadow uses the same largest-dimension test.)
+    const stroked = styled && Math.max(sxy, sy, sz) >= STROKE_MIN;
 
     const facePath = (a, b, c, d) => {
       ctx.beginPath();
@@ -595,7 +823,7 @@
     };
     const P = (dx, dy) => ({ x: ref.x + dx, y: ref.y + dy });
     const outline = () => {
-      if (!styled) return;
+      if (!stroked) return;
       ctx.globalAlpha = opacity * 0.28;
       ctx.strokeStyle = '#14100c';
       ctx.lineWidth = 1;
@@ -632,25 +860,28 @@
     }
     facePath(...yFace); outline();
 
-    // Contact shading: dark strip along the bottom of both side faces
+    // Contact shading: the block reads as SEATED, not stickered on. Four
+    // stacked translucent bands, tallest to shortest, so the strip FADES
+    // toward its top — the old single flat band had a visible hard edge
+    // (designer, 2026-08-24). Bands rather than a canvas gradient on
+    // purpose: per-frame gradient allocations are the exact thing the
+    // light pass was built to eliminate. Cumulative weight at the contact
+    // line ≈ the old 0.10; each visible step is only 0.026.
     if (opts.contact) {
-      ctx.globalAlpha = opacity * 0.10;
+      ctx.globalAlpha = opacity * 0.026;
       ctx.fillStyle = '#000';
-      const strip = 0.22; // fraction of face height
-      const s0 = xFace[0], s3 = xFace[3];
-      ctx.beginPath();
-      ctx.moveTo(s0.x, s0.y);
-      ctx.lineTo(s0.x + uz.x * strip, s0.y + uz.y * strip);
-      ctx.lineTo(s3.x + uz.x * strip, s3.y + uz.y * strip);
-      ctx.lineTo(s3.x, s3.y);
-      ctx.closePath(); ctx.fill();
-      const t0 = yFace[0], t3 = yFace[3];
-      ctx.beginPath();
-      ctx.moveTo(t0.x, t0.y);
-      ctx.lineTo(t0.x + uz.x * strip, t0.y + uz.y * strip);
-      ctx.lineTo(t3.x + uz.x * strip, t3.y + uz.y * strip);
-      ctx.lineTo(t3.x, t3.y);
-      ctx.closePath(); ctx.fill();
+      const seat = (f0, f3) => {
+        for (const h of [0.22, 0.165, 0.11, 0.055]) {
+          ctx.beginPath();
+          ctx.moveTo(f0.x, f0.y);
+          ctx.lineTo(f0.x + uz.x * h, f0.y + uz.y * h);
+          ctx.lineTo(f3.x + uz.x * h, f3.y + uz.y * h);
+          ctx.lineTo(f3.x, f3.y);
+          ctx.closePath(); ctx.fill();
+        }
+      };
+      seat(xFace[0], xFace[3]);
+      seat(yFace[0], yFace[3]);
     }
 
     // Top face
@@ -695,17 +926,59 @@
       ctx.globalAlpha = opacity * env * (0.05 + pulse * 0.09);
       ctx.fillStyle = '#ffe9a8';
       facePath(...topFace); ctx.fill();
+      // EDGES, not face outlines. Stroking three full quads painted every
+      // shared edge twice, sprouted crossing spurs at the corners (two
+      // rectangles turning different ways under a 2px line), and drew the
+      // hidden top-face outline of a stacked block as a band across the
+      // seam. Instead: the cube's 9 visible edges exactly once — and an
+      // edge shared with a NEIGHBOURING warm settled block is skipped, so
+      // an arrangement outlines as ONE glowing shape. That is what the
+      // hint means ("N blocks read as ONE arrangement"); the old drawing
+      // never delivered it. Rule per edge (faces n1, n2, diagonal d):
+      // fully surrounded → skip; both face-neighbours warm (concave
+      // crease) → draw; one face-neighbour warm (flat continuation) →
+      // skip; none (silhouette, incl. diagonal touch) → draw.
+      const now = VH.clock.time;
+      const warmAt = (dx2, dy2, dz2) => {
+        const nb = W.blockAt(gx + dx2, gy + dy2, gz + dz2);
+        return !!nb && !nb.dropping && nb.warmUntil > now;
+      };
+      const sxv = xVisible ? 1 : 0, syv = yVisible ? 1 : 0; // viewer-facing sides
+      const C = (s, t, h) =>
+        P(s * ux.x + t * uy.x + h * uz.x, s * ux.y + t * uy.y + h * uz.y);
       ctx.globalAlpha = opacity * env * (0.50 + pulse * 0.50);
       ctx.strokeStyle = '#ffd968';
       ctx.lineWidth = Math.max(1.5, 2 * E.SCALE);
-      facePath(...topFace); ctx.stroke();
-      facePath(...xFace); ctx.stroke();
-      facePath(...yFace); ctx.stroke();
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      const edge = (a, b2, n1, n2) => {
+        const w1 = warmAt(n1[0], n1[1], n1[2]);
+        const w2 = warmAt(n2[0], n2[1], n2[2]);
+        const wd = warmAt(n1[0] + n2[0], n1[1] + n2[1], n1[2] + n2[2]);
+        if (w1 && w2 && wd) return;        // interior — no line at all
+        if ((w1 || w2) && !(w1 && w2)) return; // flat continuation — merge
+        ctx.moveTo(a.x, a.y); ctx.lineTo(b2.x, b2.y);
+      };
+      // 4 top edges (top face + each side)
+      edge(C(0, 0, 1), C(1, 0, 1), [0, 0, 1], [0, -1, 0]);
+      edge(C(1, 0, 1), C(1, 1, 1), [0, 0, 1], [1, 0, 0]);
+      edge(C(1, 1, 1), C(0, 1, 1), [0, 0, 1], [0, 1, 0]);
+      edge(C(0, 1, 1), C(0, 0, 1), [0, 0, 1], [-1, 0, 0]);
+      // 3 visible verticals (the corner opposite the front one is hidden)
+      for (let s = 0; s <= 1; s++) for (let t = 0; t <= 1; t++) {
+        if (s === 1 - sxv && t === 1 - syv) continue; // the hidden back corner
+        edge(C(s, t, 0), C(s, t, 1), [2 * s - 1, 0, 0], [0, 2 * t - 1, 0]);
+      }
+      // 2 visible bottom edges (along the two viewer-facing side faces)
+      edge(C(sxv, 0, 0), C(sxv, 1, 0), [2 * sxv - 1, 0, 0], [0, 0, -1]);
+      edge(C(0, syv, 0), C(1, syv, 0), [0, 2 * syv - 1, 0], [0, 0, -1]);
+      ctx.stroke();
+      ctx.lineCap = 'butt';
     }
 
     // Moonlit rim: highlight the two top edges nearest the moon
     // (position hoisted to E.li — one moon, and no per-block recompute)
-    if (styled) {
+    if (stroked) {
       const moon = { x: li.moonSx, y: li.moonSy };
       let best = 0, bestD = Infinity;
       for (let i = 0; i < 4; i++) {

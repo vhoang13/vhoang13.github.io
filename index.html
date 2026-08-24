@@ -60,7 +60,8 @@
     <button class="ctrl-btn ctrl-btn--icon" id="soundBtn" aria-label="Toggle sound" title="Sound">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
         <path d="M2.5 6v4h2.8L9 13V3L5.3 6H2.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
-        <path class="snd-waves" d="M11 6c.8.7.8 3.3 0 4M12.7 4.5c1.5 1.5 1.5 5.5 0 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        <path class="snd-waves snd-wave-1" d="M11 6c.8.7.8 3.3 0 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        <path class="snd-waves snd-wave-2" d="M12.7 4.5c1.5 1.5 1.5 5.5 0 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
         <path class="snd-slash" d="M2.5 13.5 13.5 2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
       </svg>
     </button>
@@ -70,23 +71,32 @@
        selected. Buttons are built by game.js from the block palette. -->
   <div class="swatches" id="swatches" role="toolbar" aria-label="Block colours"></div>
 
-  <!-- Hotbar — block palette, bottom-center -->
+  <!-- Hotbar — block palette, bottom-center.
+       Each slot NAMES its block: four little cubes read as four colours,
+       and nothing said one was a light and one was glass (the names lived
+       only in aria-label, so only screen readers ever got them). The name
+       is aria-hidden — the button's aria-label already says it, and the
+       key number too, so exposing both would read everything twice. -->
   <div class="hotbar" id="hotbar" role="toolbar" aria-label="Block types">
-    <button class="slot selected" data-type="color" aria-label="Color block (1)">
+    <button class="slot selected" data-type="color" aria-label="Colour block (1)">
       <canvas class="slot-icon" width="64" height="64" aria-hidden="true"></canvas>
       <span class="slot-key">1</span>
+      <span class="slot-name" aria-hidden="true">Colour</span>
     </button>
     <button class="slot" data-type="grass" aria-label="Grass block (2)">
       <canvas class="slot-icon" width="64" height="64" aria-hidden="true"></canvas>
       <span class="slot-key">2</span>
+      <span class="slot-name" aria-hidden="true">Grass</span>
     </button>
     <button class="slot" data-type="lamp" aria-label="Lamp block (3)">
       <canvas class="slot-icon" width="64" height="64" aria-hidden="true"></canvas>
       <span class="slot-key">3</span>
+      <span class="slot-name" aria-hidden="true">Lamp</span>
     </button>
     <button class="slot" data-type="glass" aria-label="Glass block (4)">
       <canvas class="slot-icon" width="64" height="64" aria-hidden="true"></canvas>
       <span class="slot-key">4</span>
+      <span class="slot-name" aria-hidden="true">Glass</span>
     </button>
   </div>
 
@@ -108,7 +118,7 @@
   </div>
 
   <!-- Hint -->
-  <div class="hint" id="hint">Click to place blocks · Drag to move · Some shapes become monuments</div>
+  <div class="hint" id="hint">Click or drag a block from the bar · Drag to move · Some shapes become monuments</div>
 
   <script src="engine.js"></script>
   <script src="world.js"></script>

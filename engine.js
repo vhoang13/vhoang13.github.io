@@ -10,14 +10,21 @@
   const canvas = document.getElementById('scene');
   const ctx = canvas.getContext('2d');
 
+  // THE one reduced-motion source (game.js used to keep its own copy).
+  // Kept live: flipping the OS setting mid-session takes effect at the
+  // next spawn/gesture — every consumer reads E.reducedMotion at use
+  // time, so audio and visuals can never disagree about it.
+  const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
   const E = (VH.engine = {
     canvas, ctx,
     W: 0, H: 0, SCALE: 1,
     TILE: 20,
     // Scene-wide accessibility switch: no throws, shakes, tumbles, or
     // ambient sway for visitors who prefer reduced motion.
-    reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    reducedMotion: motionQuery.matches,
   });
+  motionQuery.addEventListener('change', (e) => { E.reducedMotion = e.matches; });
 
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2); // cap DPR at 2
@@ -28,7 +35,6 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
     E.SCALE = Math.min(E.W, E.H) / 600;
-    E.dirty = true; // cached layers must rebuild
     if (E._lightResize) E._lightResize();   // keep the light buffer in step
     if (E._shadowResize) E._shadowResize(); // and the shadow buffer
   }
@@ -212,14 +218,15 @@
   // gx/gy/gz/sxy/sz in grid units (live position, not resting state);
   // alpha = in-buffer weight (height falloff); dip = platform sink so
   // shadows land on the real ground plane.
-  E.addShadowBox = (gx, gy, gz, sxy, sz, alpha, dip) => {
+  E.addShadowBox = (gx, gy, gz, sxy, sz, alpha, dip, sy) => {
     if (alpha <= 0) return;
+    if (sy == null) sy = sxy; // rectangular casters: sy defaults to square
     const bz = Math.max(0, gz); // the underground part of a box casts nothing
     const tz = gz + sz;
     if (tz <= bz) return;
     const li = E.li;
     const x0 = gx + (1 - sxy) / 2, x1 = gx + (1 + sxy) / 2;
-    const y0 = gy + (1 - sxy) / 2, y1 = gy + (1 + sxy) / 2;
+    const y0 = gy + (1 - sy) / 2, y1 = gy + (1 + sy) / 2;
     const pts = [];
     for (const z of [bz, tz]) {
       const ox = z * li.shadowDx, oy = z * li.shadowDy;
@@ -409,7 +416,6 @@
       pxLight: lx, nxLight: -lx,
       pyLight: ly, nyLight: -ly,
       moonSx: mx, moonSy: my, // hoisted: rim highlight reads these per block
-      altitude: moonGz,
     };
   };
 
@@ -418,13 +424,19 @@
 
   // ── AABB helpers (occupancy, leftover sweep, occlusion sort) ──
   // pieceAABB mirrors drawBlock's geometry EXACTLY: sxy widens the piece in
-  // BOTH ground axes about the cell center; sz extends upward from gz.
+  // the x ground axis, sy (optional, defaults to sxy) in the y axis, both
+  // about the cell center; sz extends upward from gz. The optional sy is
+  // what makes RECTANGULAR pieces possible — before it, every "beam" was
+  // secretly a square slab (the torii lintel rendered as a table top).
   E.SOLID_EPS = 0.08; // how deep a block must intrude before it counts as "inside"
-  E.pieceAABB = (gx, gy, gz, sxy, sz) => ({
-    x0: gx + (1 - sxy) / 2, x1: gx + (1 + sxy) / 2,
-    y0: gy + (1 - sxy) / 2, y1: gy + (1 + sxy) / 2,
-    z0: gz, z1: gz + sz,
-  });
+  E.pieceAABB = (gx, gy, gz, sxy, sz, sy) => {
+    if (sy == null) sy = sxy;
+    return {
+      x0: gx + (1 - sxy) / 2, x1: gx + (1 + sxy) / 2,
+      y0: gy + (1 - sy) / 2, y1: gy + (1 + sy) / 2,
+      z0: gz, z1: gz + sz,
+    };
+  };
   E.cellAABB = (gx, gy, gz) => E.pieceAABB(gx, gy, gz, 1, 1);
   // Overlap must exceed eps on ALL THREE axes (a hairline graze doesn't count)
   E.aabbOverlap = (a, b, eps = 0) =>

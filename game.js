@@ -12,7 +12,6 @@
   const cam = VH.camera;
   const clock = VH.clock;
 
-  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const canvas = E.canvas;
 
   // ── Hit testing (facing-aware: tests the faces actually shown) ──
@@ -48,15 +47,16 @@
   }
 
   // ── Monument hit testing (front-to-back, scaled pieces) ─────
-  // Mirrors drawBlock's geometry: sxy widens both ground axes about the
-  // cell center, sz extends upward. Pieces tested in REVERSE draw order so
-  // the front-most piece under the cursor wins.
+  // Mirrors drawBlock's geometry: sxy widens the x ground axis, sy the y
+  // axis (rectangular pieces), both about the cell center; sz extends
+  // upward. Pieces tested in REVERSE draw order so the front-most piece
+  // under the cursor wins.
   function monumentFaceQuads(p) {
-    const sxy = p.sxy, sz = p.sz;
-    const ref = E.toScreen(p.gx + (1 - sxy) / 2, p.gy + (1 - sxy) / 2, p.gz);
+    const sxy = p.sxy, sy = p.sy, sz = p.sz;
+    const ref = E.toScreen(p.gx + (1 - sxy) / 2, p.gy + (1 - sy) / 2, p.gz);
     const fv = E.fv;
     const ux = { x: fv.ux.x * sxy, y: fv.ux.y * sxy };
-    const uy = { x: fv.uy.x * sxy, y: fv.uy.y * sxy };
+    const uy = { x: fv.uy.x * sy, y: fv.uy.y * sy };
     const uz = { x: fv.uz.x * sz, y: fv.uz.y * sz };
     const opp = { x: ref.x + ux.x + uy.x + uz.x, y: ref.y + ux.y + uy.y + uz.y };
     const P = (dx, dy) => ({ x: ref.x + dx, y: ref.y + dy });
@@ -86,25 +86,98 @@
 
   // A monument move is allowed only onto fully free, on-platform cells
   // (its own current footprint counts as free — it vacates it).
-  function monumentMoveValid(mon, dx, dy) {
-    const free = (c) => {
+  // A monument drag now resolves a landing HEIGHT as well as a shift, so
+  // monuments can stand on cubes (the lighthouse fills one square cleanly
+  // and could never sit on a block). Rules, decided 2026-08-24:
+  // - FLAT SURFACE: every footprint column must land with the same lift.
+  //   A pyramid on one tall block is refused (red ghost); a pyramid on a
+  //   full 3×3 plinth is allowed — building the plinth becomes the goal.
+  // - CUBES OR GROUND only. A monument's sculpted top stops short of its
+  //   cell line (the perch measurements in HANDOFF.md), so landing on
+  //   another monument would hover exactly like the perch bug. Blocks
+  //   fill their cells; monuments don't.
+  // Dragging a RAISED monument onto open ground yields a negative dz — it
+  // comes down, and W.resettle() after the commit agrees.
+  function monumentMovePlan(mon, dx, dy) {
+    const refuse = { ok: false, dz: 0 };
+    // lowest recipe cell per destination column
+    const cols = new Map();
+    for (const c of mon.cells) {
       const gx = c.gx + dx, gy = c.gy + dy;
+      const k = gx + ',' + gy;
+      const cur = cols.get(k);
+      if (cur === undefined || c.gz < cur.baseGz) cols.set(k, { gx, gy, baseGz: c.gz });
+    }
+    let dz = null;
+    for (const { gx, gy, baseGz } of cols.values()) {
+      if (!W.isOnPlatform(gx, gy)) return refuse;
+      // column height ignoring the dragged monument itself
+      let h = 0;
+      for (;;) {
+        const v = W.at(gx, gy, h);
+        if (v === undefined || v === mon) break;
+        h++;
+      }
+      if (h > 0) {
+        const under = W.at(gx, gy, h - 1);
+        if (!under || under.color === undefined) return refuse; // not a cube
+      }
+      const lift = h - baseGz;
+      if (dz === null) dz = lift;
+      else if (lift !== dz) return refuse; // flat-surface rule
+    }
+    if (dz === null) return refuse;
+    const free = (c) => {
+      const gx = c.gx + dx, gy = c.gy + dy, gz = c.gz + dz;
       if (!W.isOnPlatform(gx, gy)) return false;
-      const v = W.at(gx, gy, c.gz);
+      if (gz < 0) return false;
+      const v = W.at(gx, gy, gz);
       return v === undefined || v === mon;
     };
-    return mon.cells.every(free) && (mon.blocked || []).every(free);
+    if (!mon.cells.every(free)) return refuse;
+    // blocked cells that would sink below the floor re-derive away on
+    // commit — skip them rather than refuse over them
+    if (!(mon.blocked || []).every(c => c.gz + dz < 0 || free(c))) return refuse;
+    return { ok: true, dz };
+  }
+
+  // The one commit path — the pointer handler and the dev harness both use
+  // it, so a passing test is testing the real move.
+  function applyMonumentMove(mon, dx, dy, dz) {
+    mon.cells.forEach(c => { c.gx += dx; c.gy += dy; c.gz += dz; });
+    mon.model.forEach(m => { m.gx += dx; m.gy += dy; m.gz += dz; });
+    mon.blocked = VH.monuments.blockedCellsFor(mon.model, mon.cells);
+    W.markDirty();
+    W.resettle(); // blocks stacked on the moved monument FALL (user decision)
+    W.save();
+  }
+
+  // One monument→debris policy for BOTH destructions (Clear and the void
+  // drop): the same monument must shed the same pieces however it dies.
+  // Pieces under DEBRIS_MIN in every dimension vanish as trim — detailed
+  // models have dozens of tiny pieces, and one shell per piece would
+  // starve the particle budget mid-barrage (spawnBurst silently drops
+  // when full).
+  const DEBRIS_MIN = 0.4;
+  function monumentDebris(mon, dx = 0, dy = 0) {
+    const out = [];
+    mon.model.forEach(p => {
+      if (Math.max(p.sxy, p.sy) < DEBRIS_MIN && p.sz < DEBRIS_MIN) return;
+      out.push(W.makeDebris(p.gx + dx, p.gy + dy, p.gz,
+        { color: p.color, sxy: p.sxy, sy: p.sy, sz: p.sz }));
+    });
+    return out;
   }
 
   // ── Interaction state ───────────────────────────────────────
   let dragBlock = null;
-  let dragOrigin = null;      // where the carried block came from
+  let dragOrigin = null;      // where the carried block came from (null when spawned)
+  let spawnDrag = false;      // carried block came OUT OF THE HOTBAR, not off the platform
   let isDragging = false;
   let isRotating = false;
   let pointerScreen = { x: 0, y: 0 };
   let pointerDownPos = { x: 0, y: 0 };
   let hoverGrid = null;
-  let hoverBlock = null;
   let rotateStartAngle = 0;
   let rotateStartX = 0;
   let didDrag = false;
@@ -130,7 +203,6 @@
 
   function updateHoverTarget() {
     hoverGrid = null;
-    hoverBlock = null;
     const { ux, uy } = E.fv;
     // Test the LANDING SURFACE of each column (the visible top of the
     // stack — the diamond the new block will sit ON), tallest first.
@@ -153,9 +225,6 @@
       const q3 = { x: ref.x + uy.x, y: ref.y + uy.y };
       if (E.pointInQuad(pointerScreen.x, pointerScreen.y, ref, q1, q2, q3)) {
         hoverGrid = { gx: c.gx, gy: c.gy, gz: c.gz };
-        hoverBlock = W.blocks.find(b =>
-          b.gx === c.gx && b.gy === c.gy && b.gz === c.gz - 1 && W.isLive(b) && !b.dropping
-        ) || null;
         return;
       }
     }
@@ -190,11 +259,86 @@
     dragBlock.gx = gx;
     dragBlock.gy = gy;
     dragBlock.gz = Math.min(gz, W.MAX_STACK);
-    dragBlock.dropOffset = prefersReducedMotion ? 0 : 2;
+    dragBlock.dropOffset = E.reducedMotion ? 0 : 2;
     dragBlock.dropVel = 0;
     dragBlock.dropDelay = 0;
-    dragBlock.dropping = !prefersReducedMotion;
+    dragBlock.dropping = !E.reducedMotion;
     W.blocks.push(dragBlock);
+  }
+
+  // The ONE commit path for a carried block — shared by the canvas release
+  // and by a drag that started on a hotbar slot, so both can't drift.
+  // spawnDrag flips the failure cases: a block dragged OUT OF THE BAR has
+  // no origin to go home to and was never in the world, so "put it back"
+  // and "throw it into the void" both become simply "never happened".
+  function releaseCarriedBlock(cancelled) {
+    // Re-validate at COMMIT time: hoverGrid was computed on the last
+    // pointer move, and the world can change in between (a ceremony
+    // finishing, a block landing). Never trust a stale target.
+    const freshGz = (!cancelled && hoverGrid && W.isOnPlatform(hoverGrid.gx, hoverGrid.gy))
+      ? W.getStackHeight(hoverGrid.gx, hoverGrid.gy) : Infinity;
+    if (freshGz <= W.MAX_STACK) {
+      dragBlock.gx = hoverGrid.gx;
+      dragBlock.gy = hoverGrid.gy;
+      dragBlock.gz = freshGz;
+      dragBlock.dropOffset = E.reducedMotion ? 0 : 2;
+      dragBlock.dropVel = 0;
+      dragBlock.dropDelay = 0;
+      dragBlock.dropping = !E.reducedMotion;
+      W.blocks.push(dragBlock);
+      if (E.reducedMotion && VH.sfx) VH.sfx.tock(dragBlock.gz, 0.6);
+      W.notifyPlaced(dragBlock); // moving a block can complete a pattern
+      W.save();
+    } else if (spawnDrag) {
+      // Never placed: no put-back, no void drop, no save — the world is
+      // exactly as it was before the drag started.
+      if (VH.sfx) VH.sfx.uiTick('slot');
+    } else if (!cancelled && hoverGrid && W.isOnPlatform(hoverGrid.gx, hoverGrid.gy)) {
+      // Target filled up while carrying → go home instead of overwriting
+      restoreDragBlockToOrigin();
+      W.save();
+    } else if (cancelled) {
+      restoreDragBlockToOrigin();
+      W.save();
+    } else {
+      const grid = E.toGrid(pointerScreen.x, pointerScreen.y);
+      if (W.isOnPlatform(grid.gx, grid.gy)) {
+        // On the platform but no valid spot (e.g. full stack) → go home
+        restoreDragBlockToOrigin();
+        W.save();
+      } else {
+        // Dropped off the platform: it tumbles into the void — real
+        // physics, no scolding. (Reduced motion: it simply vanishes.)
+        if (!E.reducedMotion) {
+          const g = E.toGrid(pointerScreen.x, pointerScreen.y);
+          dragBlock.gx = g.gx;
+          dragBlock.gy = g.gy;
+          dragBlock.gz = 0;
+          dragBlock.dropping = false;
+          dragBlock.dropOffset = 0;
+          dragBlock.blasting = true;
+          dragBlock.blastMode = 'fade';
+          dragBlock.blastX = 0; dragBlock.blastY = 0; dragBlock.blastZ = 2;
+          dragBlock.blastVelX = 0; dragBlock.blastVelY = 0; dragBlock.blastVelZ = -2;
+          dragBlock.spinVel = (Math.random() - 0.5) * 4;
+          W.blocks.push(dragBlock);
+        }
+        // A single block's fall cue (same design as the monument's,
+        // minus the tumble): release → descent → nothing but tail.
+        if (VH.sfx) VH.sfx.fall({
+          pan: Math.max(-0.6, Math.min(0.6, (pointerScreen.x / E.W) * 2 - 1)),
+          mass: 1, reduced: E.reducedMotion,
+        });
+        W.save();
+      }
+    }
+    dragBlock = null;
+    dragOrigin = null;
+    isDragging = false;
+    spawnDrag = false;
+    hoverGrid = null;
+    lastMoveX = null;
+    dragVelX = 0;
   }
 
   // Clicking a block STACKS on its column; dragging a block MOVES it.
@@ -209,6 +353,7 @@
   let dragMon = null;
   let dragMonBase = null;            // grid cell under the pointer at pickup
   let dragMonDelta = { dx: 0, dy: 0 };
+  let dragMonDz = 0;                 // landing lift resolved by monumentMovePlan
   let dragMonValid = false;
 
   canvas.addEventListener('pointerdown', (e) => {
@@ -289,7 +434,9 @@
       // Whole-structure move: pointer delta on the ground plane, in cells
       const g = E.toGrid(p.x, p.y);
       dragMonDelta = { dx: g.gx - dragMonBase.gx, dy: g.gy - dragMonBase.gy };
-      dragMonValid = monumentMoveValid(dragMon, dragMonDelta.dx, dragMonDelta.dy);
+      const plan = monumentMovePlan(dragMon, dragMonDelta.dx, dragMonDelta.dy);
+      dragMonValid = plan.ok;
+      dragMonDz = plan.dz;
       return;
     }
 
@@ -312,12 +459,15 @@
   });
 
   function endPointer(e, cancelled) {
-    // Single-pointer game: any pointerup/cancel while a gesture is active ends it.
-    // (Strict pointerId matching can wedge the input if the up event arrives
-    // with a different id, e.g. from synthetic/test input.)
+    // Strict pointer matching: only the pointer that STARTED the gesture may
+    // end it — on touch, a second finger's tap must not commit the first
+    // finger's drag at whatever position the cursor happens to be. (An
+    // earlier loosening for synthetic test input is superseded: synthetic
+    // events must use pointerId 1, the primary — setPointerCapture rejects
+    // other ids anyway. The lostpointercapture net below un-wedges the rare
+    // case where the captured pointer dies without a proper up/cancel.)
     if (activePointerId === null) return;
-    if (e.pointerId !== activePointerId && !isDragging && !isRotating && !pendingBlock &&
-        !pendingMonument && !dragMon) return;
+    if (e.pointerId !== activePointerId) return;
     activePointerId = null;
 
     // Pressed a monument and released without moving: nothing happens
@@ -325,19 +475,26 @@
 
     if (dragMon) {
       const { dx, dy } = dragMonDelta;
+      let movePlan; // resolved (ok + landing lift) inside the commit test below
       const stillExists = W.monuments.includes(dragMon); // Clear mid-drag guard
-      const pg = E.toGrid(pointerScreen.x, pointerScreen.y);
-      if (!cancelled && stillExists && !W.isOnPlatform(pg.gx, pg.gy)) {
+      // "Off the platform" = the WHOLE dragged footprint left it (what the
+      // ghost shows), and the drag actually moved. The old test projected
+      // the raw cursor onto the GROUND plane, ignoring height — pressing
+      // high on a tall monument near the edge projected off-platform before
+      // any movement, so a six-pixel twitch destroyed it. A partially-off
+      // destination stays a refused move (red ghost), not a destruction.
+      const thrownOff = (dx || dy) &&
+        dragMon.cells.every(c => !W.isOnPlatform(c.gx + dx, c.gy + dy));
+      if (!cancelled && stillExists && thrownOff) {
         // Released off the platform: the monument tumbles into the void,
         // same as a block. The DISCOVERY persists — only the built copy
         // is gone; it can always be rebuilt from its recipe.
         W.monuments.splice(W.monuments.indexOf(dragMon), 1);
-        if (!prefersReducedMotion) {
-          dragMon.model.forEach(p => {
-            // Fall from the GHOST position (original + drag delta) — the
-            // monument never moves during a drag, so without the offset
-            // the debris dropped from its old spot mid-platform.
-            const d = W.makeDebris(p.gx + dx, p.gy + dy, p.gz, { color: p.color, sxy: p.sxy, sz: p.sz });
+        if (!E.reducedMotion) {
+          // Fall from the GHOST position (original + drag delta) — the
+          // monument never moves during a drag, so without the offset
+          // the debris dropped from its old spot mid-platform.
+          monumentDebris(dragMon, dx, dy).forEach(d => {
             d.blasting = true;
             d.blastMode = 'fade';
             d.blastVelZ = -1 - Math.random() * 2;
@@ -346,19 +503,25 @@
           });
           E.kickShake(2);
         }
-        if (VH.sfx) VH.sfx.whoomp();
+        // The fall cue: a release, a descending tumble (the monument's own
+        // rise melody played backwards as you lose it), and 240 ms of pure
+        // reverb tail at the end — the void has no floor. Panned to where
+        // you actually threw it. Reduced motion gets a short confirmation
+        // instead (on screen nothing falls; a long tumble would be a lie).
+        if (VH.sfx) VH.sfx.fall({
+          pan: Math.max(-0.6, Math.min(0.6, (pointerScreen.x / E.W) * 2 - 1)),
+          mass: dragMon.model.length, tumble: true, reduced: E.reducedMotion,
+        });
         W.markDirty();
         W.resettle(); // anything stacked on it falls
         W.save();
-      } else if (!cancelled && stillExists && (dx || dy) && monumentMoveValid(dragMon, dx, dy)) {
-        // Commit: shift cells + model, re-derive the blocked volume
-        dragMon.cells.forEach(c => { c.gx += dx; c.gy += dy; });
-        dragMon.model.forEach(m => { m.gx += dx; m.gy += dy; });
-        dragMon.blocked = VH.monuments.blockedCellsFor(dragMon.model, dragMon.cells);
-        W.markDirty();
-        W.resettle(); // blocks stacked on the moved monument FALL (user decision)
-        W.save();
-        if (!prefersReducedMotion) {
+      } else if (!cancelled && stillExists && (dx || dy) &&
+                 (movePlan = monumentMovePlan(dragMon, dx, dy)).ok) {
+        // Commit: shift cells + model (with the resolved landing lift),
+        // re-derive the blocked volume — applyMonumentMove is the ONE
+        // commit path, shared with the vh-dev-monstack harness
+        applyMonumentMove(dragMon, dx, dy, movePlan.dz);
+        if (!E.reducedMotion) {
           W.kickDip(0.8); // it lands with weight
           const c0 = dragMon.cells[0];
           if (VH.fx) VH.fx.spawnDust(c0.gx, c0.gy, 0, 10);
@@ -366,12 +529,13 @@
         if (VH.sfx) VH.sfx.tock(0, 0.9);
       } else if (!cancelled && stillExists && (dx || dy)) {
         // Refused: the red ghost already said why; a small headshake
-        if (!prefersReducedMotion) E.kickShake(2);
+        if (!E.reducedMotion) E.kickShake(2);
       }
       dragMon._dragging = false;
       dragMon = null;
       dragMonBase = null;
       dragMonDelta = { dx: 0, dy: 0 };
+      dragMonDz = 0;
       canvas.style.cursor = 'default';
       return;
     }
@@ -384,7 +548,7 @@
       if (gz <= W.MAX_STACK) {
         const placed = W.makeBlock(col.gx, col.gy, gz, { color: placeColor() });
         W.blocks.push(placed);
-        if (prefersReducedMotion && VH.sfx) VH.sfx.tock(gz, 0.6);
+        if (E.reducedMotion && VH.sfx) VH.sfx.tock(gz, 0.6);
         W.notifyPlaced(placed);
         W.save();
       }
@@ -395,64 +559,7 @@
     pendingBlock = null;
 
     if (isDragging && dragBlock) {
-      // Re-validate at COMMIT time: hoverGrid was computed on the last
-      // pointer move, and the world can change in between (a ceremony
-      // finishing, a block landing). Never trust a stale target.
-      const freshGz = (!cancelled && hoverGrid && W.isOnPlatform(hoverGrid.gx, hoverGrid.gy))
-        ? W.getStackHeight(hoverGrid.gx, hoverGrid.gy) : Infinity;
-      if (freshGz <= W.MAX_STACK) {
-        dragBlock.gx = hoverGrid.gx;
-        dragBlock.gy = hoverGrid.gy;
-        dragBlock.gz = freshGz;
-        dragBlock.dropOffset = prefersReducedMotion ? 0 : 2;
-        dragBlock.dropVel = 0;
-        dragBlock.dropDelay = 0;
-        dragBlock.dropping = !prefersReducedMotion;
-        W.blocks.push(dragBlock);
-        if (prefersReducedMotion && VH.sfx) VH.sfx.tock(dragBlock.gz, 0.6);
-        W.notifyPlaced(dragBlock); // moving a block can complete a pattern
-        W.save();
-      } else if (!cancelled && hoverGrid && W.isOnPlatform(hoverGrid.gx, hoverGrid.gy)) {
-        // Target filled up while carrying → go home instead of overwriting
-        restoreDragBlockToOrigin();
-        W.save();
-      } else if (cancelled) {
-        restoreDragBlockToOrigin();
-        W.save();
-      } else {
-        const grid = E.toGrid(pointerScreen.x, pointerScreen.y);
-        if (W.isOnPlatform(grid.gx, grid.gy)) {
-          // On the platform but no valid spot (e.g. full stack) → go home
-          restoreDragBlockToOrigin();
-          W.save();
-        } else {
-          // Dropped off the platform: it tumbles into the void — real
-          // physics, no scolding. (Reduced motion: it simply vanishes.)
-          if (!prefersReducedMotion) {
-            const g = E.toGrid(pointerScreen.x, pointerScreen.y);
-            dragBlock.gx = g.gx;
-            dragBlock.gy = g.gy;
-            dragBlock.gz = 0;
-            dragBlock.dropping = false;
-            dragBlock.dropOffset = 0;
-            dragBlock.blasting = true;
-            dragBlock.blastMode = 'fade';
-            dragBlock.blastX = 0; dragBlock.blastY = 0; dragBlock.blastZ = 2;
-            dragBlock.blastVelX = 0; dragBlock.blastVelY = 0; dragBlock.blastVelZ = -2;
-            dragBlock.spinVel = (Math.random() - 0.5) * 4;
-            W.blocks.push(dragBlock);
-          }
-          if (VH.sfx) VH.sfx.whoomp();
-          W.save();
-        }
-      }
-      dragBlock = null;
-      dragOrigin = null;
-      isDragging = false;
-      hoverGrid = null;
-      hoverBlock = null;
-      lastMoveX = null;
-      dragVelX = 0;
+      releaseCarriedBlock(cancelled);
     } else if (isRotating) {
       if (!didDrag && !cancelled) {
         // Click/tap on the platform → place a block
@@ -462,7 +569,7 @@
           if (gz <= W.MAX_STACK) {
             const placed = W.makeBlock(grid.gx, grid.gy, gz, { color: placeColor() });
             W.blocks.push(placed);
-            if (prefersReducedMotion && VH.sfx) VH.sfx.tock(gz, 0.6);
+            if (E.reducedMotion && VH.sfx) VH.sfx.tock(gz, 0.6);
             W.notifyPlaced(placed);
             W.save();
           }
@@ -471,11 +578,11 @@
         // If the tap interrupted a snap animation, finish the snap
         const HALF_PI = Math.PI / 2;
         if (Math.abs(cam.angle - Math.round(cam.angle / HALF_PI) * HALF_PI) > 1e-4) {
-          cam.snapTo(cam.nearestSnap(), prefersReducedMotion ? 0.001 : 0.3);
+          cam.snapTo(cam.nearestSnap(), E.reducedMotion ? 0.001 : 0.3);
         }
       } else {
         // Release the rotation into a snap at the nearest quarter turn
-        cam.snapTo(cam.nearestSnap(), prefersReducedMotion ? 0.001 : 0.5);
+        cam.snapTo(cam.nearestSnap(), E.reducedMotion ? 0.001 : 0.5);
       }
       isRotating = false;
     }
@@ -485,14 +592,25 @@
 
   canvas.addEventListener('pointerup', (e) => endPointer(e, false));
   canvas.addEventListener('pointercancel', (e) => endPointer(e, true));
+  // Safety net for the strict guard above: if the captured pointer dies
+  // without a proper up/cancel, end the gesture as a cancel instead of
+  // wedging input. (After a normal pointerup this fires too, but by then
+  // activePointerId is null and endPointer returns immediately.)
+  canvas.addEventListener('lostpointercapture', (e) => {
+    if (e.pointerId === activePointerId) endPointer(e, true);
+  });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // Keyboard: quarter-turn rotation (reads as "game", helps accessibility)
   window.addEventListener('keydown', (e) => {
     const k = e.key;
     // Arrows match the drag: ArrowRight turns the world the way dragging right does
-    if (k === 'ArrowLeft' || k === 'Left') { cam.rotateStep(1); e.preventDefault(); }
-    else if (k === 'ArrowRight' || k === 'Right' || k === 'r' || k === 'R') { cam.rotateStep(-1); e.preventDefault(); }
+    if (k === 'ArrowLeft' || k === 'Left') {
+      cam.rotateStep(1); if (VH.sfx) VH.sfx.uiTick('rotate'); e.preventDefault();
+    }
+    else if (k === 'ArrowRight' || k === 'Right' || k === 'r' || k === 'R') {
+      cam.rotateStep(-1); if (VH.sfx) VH.sfx.uiTick('rotate'); e.preventDefault();
+    }
     else if (k >= '1' && k <= '4') {
       selectSlot(['color', 'grass', 'lamp', 'glass'][+k - 1]);
     }
@@ -512,10 +630,10 @@
     // A reset mid-ceremony must not leave an orphaned ceremony drawing
     VH.monuments.clearCeremonies();
 
-    // Monuments explode too: each model piece becomes blast debris that
-    // keeps its shape (the obelisk's gold tip bursts as its own shell)
-    W.monuments.forEach(mon => mon.model.forEach(p =>
-      W.blocks.push(W.makeDebris(p.gx, p.gy, p.gz, { color: p.color, sxy: p.sxy, sz: p.sz }))));
+    // Monuments explode too: each substantial model piece becomes blast
+    // debris that keeps its shape (the obelisk's gold tip bursts as its
+    // own shell) — one shared policy with the void drop (monumentDebris).
+    W.monuments.forEach(mon => monumentDebris(mon).forEach(d => W.blocks.push(d)));
     W.monuments = [];
 
     // The launch itself lives in W.launchBlocks (shared with the ceremony's
@@ -524,19 +642,30 @@
       cx: (W.GRID_MIN + W.GRID_MAX) / 2,
       cy: (W.GRID_MIN + W.GRID_MAX) / 2,
     });
-    if (prefersReducedMotion) {
-      // One soft bloom over the whole board: "the stage dissolves in light"
+    const shellCount = W.blocks.length;
+    if (E.reducedMotion) {
+      // One soft bloom over the whole board: "the stage dissolves in light".
+      // The sound keeps the ARC (thump → soft break → crackle → the night
+      // returns) without describing a barrage that isn't on screen — and
+      // reduced-motion users finally GET a final beat (the old path wired
+      // onBlastCleared only in the animated branch).
       FX.spawnFlash(0, 0, 1.2, { dur: 0.7, r0: 3, r1: 6, peak: 0.30 });
-      if (VH.sfx) VH.sfx.boom(0.6);
+      if (VH.sfx) VH.sfx.clearReduced();
     } else {
       E.kickShake(5);
       W.kickDip(2.2);
-      // A final beat once the last shell is gone
+      // A final beat once the last shell is gone. finalBoom bypasses the
+      // boom coalescer — the OLD cooldown ate this beat in the same tick,
+      // every single time, so Clear's punctuation had never actually played.
       W.onBlastCleared = () => {
-        if (VH.sfx) VH.sfx.boom(1.4);
+        if (VH.sfx) VH.sfx.finalBoom();
         W.kickDip(1.0);
       };
-      if (VH.sfx) { VH.sfx.whoomp(); VH.sfx.whistle(); }
+      // Anticipation thump + a whistle VOLLEY that shadows the real launch
+      // stagger (one whistle for a whole barrage was the biggest tell),
+      // then a deliberate gap before the first apex. Tier budgets scale to
+      // the board so a small clear stays intimate.
+      if (VH.sfx) VH.sfx.beginBarrage(shellCount);
     }
     // Persistence doesn't wait for the show: save() filters launching
     // blocks, so the debounced write stores the empty stage + discoveries.
@@ -567,9 +696,22 @@
   }
   codexBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    if (VH.sfx) VH.sfx.uiTick(codex.hidden ? 'open' : 'close');
     if (codex.hidden) openCodex(); else closeCodex();
   });
   document.getElementById('codexClose').addEventListener('click', () => closeCodex());
+  // Tap any row to show/hide its PLAN (the blocks to place). Delegated,
+  // because buildCodex() replaces every row on each rebuild. For an
+  // undiscovered monument the name stays ??? — you learn what to build,
+  // never what you get, so the ceremony is still the reveal. Found rows
+  // toggle too: after a Clear, the plan is how you rebuild a favourite.
+  document.getElementById('codexList').addEventListener('click', (e) => {
+    const row = e.target.closest('.codex-row');
+    if (!row || !row.dataset.recipe) return;
+    e.stopPropagation();
+    const opened = VH.monuments.togglePlan(row.dataset.recipe);
+    if (VH.sfx) VH.sfx.uiTick(opened ? 'open' : 'close');
+  });
   VH.monuments.onDiscovered = () => {
     W.save();
     VH.monuments.buildCodex(); // refresh counts/rows (cheap; also updates badge)
@@ -584,7 +726,76 @@
     slots.forEach(s => s.classList.toggle('selected', s.dataset.type === type));
     reflectSwatches();
   }
-  slots.forEach(s => s.addEventListener('click', () => selectSlot(s.dataset.type)));
+  slots.forEach(s => s.addEventListener('click', () => {
+    // Kept for KEYBOARD: Enter/Space fire click with NO pointer events, so
+    // removing this would strip keyboard selection. Any pointer gesture has
+    // already selected on press (and a drag must not re-select on release),
+    // so the click that trails every tap is swallowed here.
+    if (slotPointerDone) { slotPointerDone = false; return; }
+    if (VH.sfx) VH.sfx.uiTick('slot');
+    selectSlot(s.dataset.type);
+  }));
+
+  // ── Drag a block OUT of the hotbar onto the platform ────────
+  // The instinct is to drag from the bar rather than click-then-click, and
+  // everything needed already exists: the carried cube renders at the
+  // cursor, updateHoverTarget() resolves the landing cell, drawGhostBlock
+  // previews it, and releaseCarriedBlock commits. All that's new is
+  // starting the gesture on an HTML button.
+  //
+  // The slot CAPTURES the pointer, so every later move/up fires here even
+  // though the finger is out over the canvas — the canvas handlers stay
+  // out of it entirely and there is exactly one owner for the gesture.
+  let slotPressId = null;      // pointerId owning a press that began on a slot
+  let slotPressPos = null;
+  let slotPointerDone = false; // a pointer gesture handled it; swallow the trailing click
+  slots.forEach(s => {
+    s.addEventListener('pointerdown', (e) => {
+      if (activePointerId !== null || slotPressId !== null) return; // one pointer drives
+      slotPressId = e.pointerId;
+      slotPressPos = { x: e.clientX, y: e.clientY };
+      try { s.setPointerCapture(e.pointerId); } catch (_) { /* synthetic ids */ }
+      // Select on PRESS: it makes placeColor() right for the drag that may
+      // follow, and the highlight answers the finger immediately.
+      if (VH.sfx) VH.sfx.uiTick('slot');
+      selectSlot(s.dataset.type);
+    });
+    s.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== slotPressId) return;
+      pointerScreen = { x: e.clientX, y: e.clientY };
+      if (!isDragging) {
+        if (Math.abs(e.clientX - slotPressPos.x) < DRAG_THRESHOLD &&
+            Math.abs(e.clientY - slotPressPos.y) < DRAG_THRESHOLD) return;
+        // Past the threshold: this is a drag, not a tap. The block is made
+        // but deliberately NOT pushed into W.blocks — it isn't in the world
+        // until it lands, so an abandoned drag leaves nothing behind.
+        dragBlock = W.makeBlock(0, 0, 0, { color: placeColor() });
+        dragBlock.dropping = false;
+        dragBlock.dropOffset = 0;
+        dragOrigin = null;
+        spawnDrag = true;
+        isDragging = true;
+        dragStartTime = clock.time;
+        W.hoveredBlock = null;
+        canvas.style.cursor = 'grabbing';
+      }
+      updateHoverTarget(); // keeps the carried cube and its ghost in step
+    });
+    const endSlotPress = (e, cancelled) => {
+      if (e.pointerId !== slotPressId) return;
+      if (isDragging && dragBlock) {
+        pointerScreen = { x: e.clientX, y: e.clientY };
+        if (!cancelled) updateHoverTarget();
+        releaseCarriedBlock(cancelled);
+      }
+      slotPressId = null;
+      slotPressPos = null;
+      slotPointerDone = true; // the trailing click is a duplicate, not input
+      canvas.style.cursor = 'default';
+    };
+    s.addEventListener('pointerup', (e) => endSlotPress(e, false));
+    s.addEventListener('pointercancel', (e) => endSlotPress(e, true));
+  });
 
   // ── Colour swatches (unfold while the colour slot is selected) ──
   const swatchBar = document.getElementById('swatches');
@@ -607,6 +818,7 @@
       }
       b.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (VH.sfx) VH.sfx.uiTick('swatch');
         chosenColor = colorKey || null;
         [...swatchBar.children].forEach(x => x.classList.toggle('selected', x === b));
         drawSlotIcons(); // slot 1's cube shows the locked colour (or multicolour)
@@ -618,7 +830,13 @@
     W.BLOCK_COLORS.forEach(mk);
   })();
 
-  // Mini isometric cube icons drawn into each slot canvas
+  // Mini isometric cube icons drawn into each slot canvas.
+  // Runs on init and on colour-swatch change — NOT per frame, so the
+  // gradient below is not the per-frame allocation the light pass was
+  // built to eliminate. Don't "optimise" it away.
+  // Each icon has to say what its block IS: four cubes in four colours
+  // read as four colours, which is exactly the confusion the captions and
+  // these treatments fix together.
   function drawSlotIcons() {
     const ICON_COLORS = {
       // Multicolour cube = "random"; a locked colour shows its own cube
@@ -634,8 +852,10 @@
       const ictx = c.getContext('2d');
       const col = ICON_COLORS[slot.dataset.type];
       const cx = 32, cy = 34, t = 17;
+      const type = slot.dataset.type;
       ictx.clearRect(0, 0, 64, 64);
-      const face = (pts, fill) => {
+      const face = (pts, fill, alpha) => {
+        ictx.globalAlpha = alpha === undefined ? 1 : alpha;
         ictx.fillStyle = fill;
         ictx.beginPath();
         ictx.moveTo(pts[0][0], pts[0][1]);
@@ -644,12 +864,45 @@
         ictx.strokeStyle = 'rgba(0,0,0,0.35)';
         ictx.lineWidth = 1.5;
         ictx.stroke();
+        ictx.globalAlpha = 1;
       };
-      face([[cx, cy - t * 1.5], [cx + t, cy - t], [cx, cy - t * 0.5], [cx - t, cy - t]], col.top);
-      face([[cx, cy - t * 0.5], [cx + t, cy - t], [cx + t, cy], [cx, cy + t * 0.5]], col.right);
-      face([[cx, cy - t * 0.5], [cx - t, cy - t], [cx - t, cy], [cx, cy + t * 0.5]], col.front);
-      if (slot.dataset.type === 'glass') { // sheen
-        ictx.globalAlpha = 0.5;
+      // Lamp: the glow reads as EMITTING, so it goes down first and spills
+      // past the cube's silhouette — a halo behind glass-clear air, not a
+      // yellow highlight sitting on a face.
+      if (type === 'lamp') {
+        const g = ictx.createRadialGradient(cx, cy - t * 0.4, 1, cx, cy - t * 0.4, 30);
+        g.addColorStop(0, 'rgba(255,226,150,0.85)');
+        g.addColorStop(0.45, 'rgba(255,206,110,0.34)');
+        g.addColorStop(1, 'rgba(255,200,100,0)');
+        ictx.fillStyle = g;
+        ictx.fillRect(0, 0, 64, 64);
+      }
+      // Glass: genuinely see-through — the slot behind shows through the
+      // faces, which is the one thing a solid cube can never say.
+      const fa = type === 'glass' ? 0.42 : 1;
+      // Grass: soil sides under a green lid, so it reads as turf rather
+      // than "the green one".
+      const sideR = type === 'grass' ? '#6b4a2f' : col.right;
+      const sideF = type === 'grass' ? '#835b39' : col.front;
+      face([[cx, cy - t * 1.5], [cx + t, cy - t], [cx, cy - t * 0.5], [cx - t, cy - t]], col.top, fa);
+      face([[cx, cy - t * 0.5], [cx + t, cy - t], [cx + t, cy], [cx, cy + t * 0.5]], sideR, fa);
+      face([[cx, cy - t * 0.5], [cx - t, cy - t], [cx - t, cy], [cx, cy + t * 0.5]], sideF, fa);
+      if (type === 'grass') { // turf lip: a green band capping the soil
+        ictx.globalAlpha = 0.95;
+        ictx.fillStyle = col.right;
+        ictx.beginPath();
+        ictx.moveTo(cx, cy - t * 0.5); ictx.lineTo(cx + t, cy - t);
+        ictx.lineTo(cx + t, cy - t * 0.72); ictx.lineTo(cx, cy - t * 0.22);
+        ictx.closePath(); ictx.fill();
+        ictx.fillStyle = col.front;
+        ictx.beginPath();
+        ictx.moveTo(cx, cy - t * 0.5); ictx.lineTo(cx - t, cy - t);
+        ictx.lineTo(cx - t, cy - t * 0.72); ictx.lineTo(cx, cy - t * 0.22);
+        ictx.closePath(); ictx.fill();
+        ictx.globalAlpha = 1;
+      }
+      if (type === 'glass') { // sheen
+        ictx.globalAlpha = 0.7;
         ictx.strokeStyle = '#fff';
         ictx.lineWidth = 2;
         ictx.beginPath();
@@ -658,25 +911,36 @@
         ictx.stroke();
         ictx.globalAlpha = 1;
       }
-      if (slot.dataset.type === 'lamp') { // glow dot
-        const g = ictx.createRadialGradient(cx, cy - t * 0.9, 1, cx, cy - t * 0.9, 16);
-        g.addColorStop(0, 'rgba(255,220,130,0.65)');
-        g.addColorStop(1, 'rgba(255,220,130,0)');
-        ictx.fillStyle = g;
-        ictx.fillRect(0, 0, 64, 64);
+      if (type === 'lamp') { // filament core, on top of the faces
+        ictx.globalAlpha = 0.9;
+        ictx.fillStyle = '#fff4cf';
+        ictx.beginPath();
+        ictx.arc(cx, cy - t * 0.62, t * 0.26, 0, Math.PI * 2);
+        ictx.fill();
+        ictx.globalAlpha = 1;
       }
     });
   }
   drawSlotIcons();
 
-  // ── Sound toggle ────────────────────────────────────────────
+  // ── Sound button: a 3-state cycle (full → quiet → off) ──────
+  // No slider: it would break the icon row for a control almost nobody
+  // touches. Quiet keeps the outer wave arc at 25% opacity; off keeps the
+  // existing slash. The label announces the state for screen readers.
   const soundBtn = document.getElementById('soundBtn');
-  function reflectSound() { soundBtn.classList.toggle('muted', !VH.sfx.enabled); }
+  function reflectSound() {
+    const st = VH.sfx.state;
+    soundBtn.classList.toggle('muted', st === 'off');
+    soundBtn.classList.toggle('quiet', st === 'quiet');
+    soundBtn.setAttribute('aria-label',
+      st === 'off' ? 'Sound: off' : st === 'quiet' ? 'Sound: quiet' : 'Sound: full');
+  }
   soundBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    VH.sfx.setEnabled(!VH.sfx.enabled);
+    const next = { full: 'quiet', quiet: 'off', off: 'full' }[VH.sfx.state] || 'full';
+    VH.sfx.setState(next);
     reflectSound();
-    if (VH.sfx.enabled) VH.sfx.pop(); // audible confirmation
+    if (next !== 'off') VH.sfx.pop(); // audible confirmation at the new level
   });
   reflectSound();
 
@@ -759,6 +1023,21 @@
     E.ctx.drawImage(platformCache, 0, 0, platformCache.width, platformCache.height, 0, 0, E.W, E.H);
   }
 
+  // One blasting-block draw for BOTH passes (the behind-platform pre-pass
+  // and the sorted main pass) — the spin transform must stay identical or
+  // a faller pops the moment it crosses the platform edge
+  function drawBlastingBlock(b, drawOpacity, squashOpts) {
+    const ctx = E.ctx;
+    const bgx = b.gx + b.blastX, bgy = b.gy + b.blastY, bgz = b.gz + b.blastZ;
+    const c = E.toScreen(bgx + 0.5, bgy + 0.5, bgz + 0.5);
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate(b.spin);
+    ctx.translate(-c.x, -c.y);
+    W.drawBlock(bgx, bgy, bgz, b.color, drawOpacity, squashOpts);
+    ctx.restore();
+  }
+
   // ── Render loop (driven by real time) ───────────────────────
   let perfMon = null; // set by the #dev vh-dev-perf hook; null for visitors
   function render(nowMs) {
@@ -787,6 +1066,43 @@
     FX.updateAndDrawClouds(dt);
     FX.updateAndDrawSilhouettes(dt);
 
+    // Void-fallers that are provably BEHIND the platform draw first, so
+    // they disappear behind it. The old order painted the platform and
+    // then every block, so anything released past the FAR edge fell
+    // "through" the grass — painted over it. Same separating-plane votes
+    // as the occlusion sorter (monuments.js occlusionOrder): agreeing
+    // votes = behind; contradictory = provably no shared pixels, so the
+    // main pass is fine for those. NOT a corner-distance shortcut — a
+    // block past the middle of a far edge is genuinely behind while its
+    // depth key still sits inside the platform's range.
+    const behindPlatform = new Set();
+    {
+      const P = { x0: W.GRID_MIN, x1: W.GRID_MAX + 1,
+                  y0: W.GRID_MIN, y1: W.GRID_MAX + 1, z0: -2, z1: 0 };
+      const vx = E.cosA + E.sinA, vy = E.cosA - E.sinA, EV = 1e-9, SEP = 1e-6;
+      W.blocks.forEach(b => {
+        if (!b.blasting || b.opacity <= 0) return;
+        const A = E.pieceAABB(b.gx + b.blastX, b.gy + b.blastY, b.gz + b.blastZ,
+          b.baseSxy, b.baseSz);
+        let aF = 0, aB = 0;
+        if (A.x1 <= P.x0 + SEP) { if (vx > EV) aB++; else if (vx < -EV) aF++; }
+        else if (P.x1 <= A.x0 + SEP) { if (vx > EV) aF++; else if (vx < -EV) aB++; }
+        if (A.y1 <= P.y0 + SEP) { if (vy > EV) aB++; else if (vy < -EV) aF++; }
+        else if (P.y1 <= A.y0 + SEP) { if (vy > EV) aF++; else if (vy < -EV) aB++; }
+        if (A.z1 <= P.z0 + SEP) aB++; else if (P.z1 <= A.z0 + SEP) aF++;
+        if (aB && !aF) behindPlatform.add(b);
+      });
+      behindPlatform.forEach(b => {
+        const isGlass = b.color === 'glass';
+        drawBlastingBlock(b, isGlass ? b.opacity * 0.55 : b.opacity, {
+          styled: true, shade: b.shade,
+          sxy: (1 + b.squash * 0.7) * b.baseSxy,
+          sz: (1 - b.squash) * b.baseSz,
+          warmT: Math.max(0, b.warmUntil - clock.time),
+        });
+      });
+    }
+
     // Platform (dips when the blast fires; blocks below inherit the dip)
     const dip = W.dip;
     drawPlatform(dip);
@@ -805,9 +1121,10 @@
       if (b.dropping && b.dropDelay > 0) return; // not on stage yet
       if (b.opacity <= 0) return;
       const live = W.isLive(b);
-      // The SAME live coordinates the draw pass renders from
-      const gx = live ? b.gx : b.gx + b.blastX;
-      const gy = live ? b.gy : b.gy + b.blastY;
+      // The SAME live coordinates the draw pass renders from (slide = the
+      // tumble roll-off offset — shadow must ride along or it detaches)
+      const gx = live ? b.gx + (b.slideX || 0) : b.gx + b.blastX;
+      const gy = live ? b.gy + (b.slideY || 0) : b.gy + b.blastY;
       const gz = live ? b.gz + (b.dropOffset || 0) + (b.lift || 0) : b.gz + b.blastZ;
       const sxyQ = (1 + b.squash * 0.7) * b.baseSxy;
       const hTop = gz + (b.baseSz || 1);
@@ -816,13 +1133,18 @@
         heightFade(hTop) * Math.min(1, b.opacity), dip);
     });
     W.monuments.forEach(mon => {
-      if (mon.pending) return; // mid-ceremony: the rise pass owns its pixels
+      if (mon.pending) return; // mid-ceremony: pushShadowCasters owns it below
       const dim = mon._dragging ? 0.45 : 1; // match the dimmed drag look
       mon.model.forEach(m => {
+        if (!VH.monuments.castsShadow(m)) return; // ONE gate, shared with the ceremony pass
         E.addShadowBox(m.gx, m.gy, m.gz, m.sxy, m.sz,
-          heightFade(m.gz + m.sz) * dim, dip);
+          heightFade(m.gz + m.sz) * dim, dip, m.sy);
       });
     });
+    // Ceremony shadows: floaters cast from their live rising positions and
+    // the monument's pieces cast growing shadows as they pop in — no more
+    // 2-second shadow hole + single-frame snap when a monument forms
+    VH.monuments.pushShadowCasters(dip, heightFade);
     // The receiving surface: the platform's top diamond, live-rotated + dipped
     E.shadowComposite([
       E.toScreen(W.GRID_MIN, W.GRID_MIN, -dip),
@@ -831,18 +1153,24 @@
       E.toScreen(W.GRID_MIN, W.GRID_MAX + 1, -dip),
     ]);
 
-    // User blocks + monuments, merged into ONE depth-sorted pass so a
-    // block behind a monument draws behind it (and vice versa)
+    // User blocks + monuments + ceremony theater, ordered by ONE global
+    // occlusion sort over every item's REAL box — so a block against a
+    // monument sorts by the pieces' true extents, not by a base-cell
+    // stand-in. (The old merge keyed monument pieces by their base cell:
+    // a 4-cell lintel sorted as a 1-cell post at its centre, which was
+    // near-correct at the four rest angles and visibly wrong mid-rotation.)
+    // Each entry: a box {gx,gy,gz,sxy,sy,sz} plus { b } for blocks or
+    // { draw } for monument/ceremony pieces.
     const entries = [];
     W.blocks.forEach(b => {
-      const gx = b.blasting ? b.gx + b.blastX : b.gx;
-      const gy = b.blasting ? b.gy + b.blastY : b.gy;
+      if (behindPlatform.has(b)) return; // already drawn under the platform
+      const gx = b.blasting ? b.gx + b.blastX : b.gx + (b.slideX || 0);
+      const gy = b.blasting ? b.gy + b.blastY : b.gy + (b.slideY || 0);
       const gz = b.blasting ? b.gz + b.blastZ : b.gz + (b.dropping ? b.dropOffset : 0);
-      entries.push({ key: E.depthKey(gx, gy, gz), b });
+      entries.push({ gx, gy, gz, sxy: b.baseSxy, sy: b.baseSxy, sz: b.baseSz, b });
     });
     VH.monuments.pushEntries(entries, dip);
-    entries.sort((a, b) => a.key - b.key);
-    const sorted = entries; // each entry: { key, b } for blocks or { key, draw } for monuments
+    const drawOrder = VH.monuments.occlusionOrder(entries);
     // Warm ground pool under a near-miss arrangement — the peripheral
     // "where" signal the dog used to provide. One gradient, not one per
     // block; same idiom as the lamp under-glow below.
@@ -850,8 +1178,8 @@
       const wt = 7 - (clock.time - W.warmCenter.at);
       if (wt > 0) {
         const env = Math.min(1, wt / 1.5);
-        const pulse = prefersReducedMotion ? 0.65 : 0.5 + 0.5 * Math.sin(clock.time * 4.2);
-        const c = E.toScreen(W.warmCenter.gx + 1, W.warmCenter.gy + 1, 0);
+        const pulse = E.reducedMotion ? 0.65 : 0.5 + 0.5 * Math.sin(clock.time * 4.2);
+        const c = E.toScreen(W.warmCenter.gx, W.warmCenter.gy, 0); // already the arrangement's center
         E.addLight(c.x, c.y, E.TILE * E.SCALE * 3.5, '255,217,104',
           0.11 * env * (0.7 + 0.3 * pulse));
       }
@@ -862,7 +1190,7 @@
       if (b.color !== 'lamp' || !W.isLive(b)) return;
       if (b.dropping && b.dropDelay > 0) return; // not on stage yet
       const z = b.gz + (b.dropOffset || 0);
-      const flicker = prefersReducedMotion
+      const flicker = E.reducedMotion
         ? 1 : 0.85 + 0.15 * Math.sin(clock.time * 3.1 + b.gx * 2 + b.gy);
       const pool = E.toScreen(b.gx + 0.5, b.gy + 0.5, z + 0.5);
       E.addLight(pool.x, pool.y, E.TILE * E.SCALE * 3, '255,196,90', 0.16 * flicker);
@@ -870,7 +1198,8 @@
       E.addLight(top.x, top.y, E.TILE * E.SCALE * 1.1, '255,228,150', 0.35);
     });
 
-    sorted.forEach(entry => {
+    drawOrder.forEach(oi => {
+      const entry = entries[oi];
       if (entry.draw) { entry.draw(); return; } // a monument piece
       const b = entry.b;
       if (b.dropping && b.dropDelay > 0) return; // hasn't entered yet
@@ -885,29 +1214,17 @@
         warmT: Math.max(0, b.warmUntil - clock.time), // near-miss shimmer
       };
       if (b.blasting) {
-        // Tumbling: rotate the whole block around its screen center
-        const bgx = b.gx + b.blastX, bgy = b.gy + b.blastY, bgz = b.gz + b.blastZ;
-        const c = E.toScreen(bgx + 0.5, bgy + 0.5, bgz + 0.5);
-        ctx.save();
-        ctx.translate(c.x, c.y);
-        ctx.rotate(b.spin);
-        ctx.translate(-c.x, -c.y);
-        W.drawBlock(bgx, bgy, bgz, b.color, drawOpacity, squashOpts);
-        ctx.restore();
+        drawBlastingBlock(b, drawOpacity, squashOpts);
       } else {
         const settled = !b.dropping && b.lift < 0.01;
         W.drawBlock(
-          b.gx, b.gy,
+          b.gx + (b.slideX || 0), b.gy + (b.slideY || 0),
           b.gz + (b.dropOffset || 0) + b.lift - dip,
           b.color, drawOpacity,
           { ...squashOpts, contact: settled && !isGlass }
         );
       }
     });
-
-    // (The lamp top-glow lives with the under-glow above — both are
-    // registered lights now, so draw order against blocks no longer
-    // applies: the bloom pass composites over the whole scene.)
 
     // Monument glows (lighthouse lamp room, gold pyramidion)
     VH.monuments.drawGlows();
@@ -933,12 +1250,16 @@
 
     // Monument move preview: the whole structure ghosted at the
     // destination — its real colours when the drop is allowed, red when
-    // the spot is blocked (releasing there refuses the move).
+    // the spot is blocked (releasing there refuses the move). A valid
+    // plan previews at its resolved landing HEIGHT (on top of a plinth,
+    // or down to the ground from a perch); a refused one stays at the
+    // current height so the red ghost shows what you grabbed.
     if (dragMon && (dragMonDelta.dx || dragMonDelta.dy)) {
       const { dx, dy } = dragMonDelta;
+      const dz = dragMonValid ? dragMonDz : 0;
       VH.monuments.orderedModel(dragMon).forEach(m => {
-        W.drawBlock(m.gx + dx, m.gy + dy, m.gz - dip,
-          dragMonValid ? m.color : 'lightRed', 0.4, { sxy: m.sxy, sz: m.sz });
+        W.drawBlock(m.gx + dx, m.gy + dy, m.gz + dz - dip,
+          dragMonValid ? m.color : 'lightRed', 0.4, { sxy: m.sxy, sy: m.sy, sz: m.sz });
       });
     }
 
@@ -1027,7 +1348,7 @@
     VH.monuments.buildCodex();
     const boxes = [];
     W.monuments.forEach(mon => mon.model.forEach(p =>
-      boxes.push({ id: mon.id, box: E.pieceAABB(p.gx, p.gy, p.gz, p.sxy, p.sz) })));
+      boxes.push({ id: mon.id, box: E.pieceAABB(p.gx, p.gy, p.gz, p.sxy, p.sz, p.sy) })));
     for (let a = 0; a < boxes.length; a++) {
       for (let b = a + 1; b < boxes.length; b++) {
         if (boxes[a].id !== boxes[b].id && E.aabbOverlap(boxes[a].box, boxes[b].box, 0)) {
@@ -1044,6 +1365,20 @@
     cam.snapTo(cam.nearestSnap() + steps * Math.PI / 2, 0.001);
   });
   // Physics invariant tripwire: the grid engine must NEVER produce two
+  // A monument that loses its footing lands with the same feedback as a
+  // drag commit (dip, dust, tock) — it settles with weight rather than
+  // teleporting. No save here: every interactive path that can trigger a
+  // fall saves on its own, and W.load() calls resettle too — saving from
+  // inside load would be writing while reading.
+  W.onMonumentLanded = (mon) => {
+    if (!E.reducedMotion) {
+      W.kickDip(0.8);
+      const c0 = mon.cells[0];
+      if (VH.fx) VH.fx.spawnDust(c0.gx, c0.gy, 0, 10);
+    }
+    if (VH.sfx) VH.sfx.tock(0, 0.9);
+  };
+
   // settled blocks in one cell, a block inside a monument's volume, or an
   // unsupported block that isn't falling. Runs continuously under #dev;
   // fire 'vh-dev-invariant' for an on-demand report.
@@ -1058,6 +1393,27 @@
       const v = W.at(b.gx, b.gy, b.gz);
       if (v && v.color === undefined) bad.push('block inside monument @ ' + k);
       if (b.gz > 0 && !W.settledAt(b.gx, b.gy, b.gz - 1)) bad.push('floater @ ' + k);
+    });
+    // Monuments too — the 2026-08-24 floating obelisk was invisible to
+    // every automated check because this loop only ever looked at blocks.
+    W.monuments.forEach(m => {
+      if (m.pending) return; // mid-ceremony bodies are the rise's business
+      const bottoms = new Map();
+      m.cells.forEach(c => {
+        const ck = c.gx + ',' + c.gy;
+        const cur = bottoms.get(ck);
+        if (cur === undefined || c.gz < cur) bottoms.set(ck, c.gz);
+      });
+      let ok = false;
+      bottoms.forEach((gz, ck) => {
+        if (ok) return;
+        if (gz <= 0) { ok = true; return; }
+        const [bx, by] = ck.split(',').map(Number);
+        const below = W.settledAt(bx, by, gz - 1);
+        if (below !== undefined && below !== m) ok = true;
+      });
+      if (!ok) bad.push('floating monument (' + m.id + ') @ ' +
+        m.cells[0].gx + ',' + m.cells[0].gy);
     });
     if (bad.length) console.warn('[invariant]', bad.join(' | '));
     return bad;
@@ -1080,6 +1436,431 @@
     if (d.shadow !== undefined) E.SHADOW_STRENGTH = d.shadow;
     console.log('[dev-light] gain', E.LIGHT_GAIN, 'blur', E.LIGHT_BLUR,
       'moon', E.MOON_ALT, 'shadow', E.SHADOW_STRENGTH);
+  });
+  // Live audio tuning: the mix dials most likely to need review iteration
+  // (wet = reverb amount, spread = stereo width, master = pre-limiter
+  // level, amb = ambience bed level), adjustable while the reviewer
+  // listens — same idiom as vh-dev-light.
+  document.addEventListener('vh-dev-audio', (e) => {
+    console.log('[dev-audio]', JSON.stringify(VH.sfx.tune(e.detail || {})));
+  });
+  // Synthetic barrage: N detonations spread over ~0.5 s at random board
+  // positions, to exercise the boom coalescer without building a board.
+  document.addEventListener('vh-dev-barrage', (e) => {
+    const n = (e.detail && e.detail.n) || 30;
+    VH.sfx.beginBarrage(n);
+    for (let i = 0; i < n; i++) {
+      setTimeout(() => {
+        const gx = W.GRID_MIN + Math.random() * (W.GRID_MAX - W.GRID_MIN);
+        const gy = W.GRID_MIN + Math.random() * (W.GRID_MAX - W.GRID_MIN);
+        const gz = 4 + Math.random() * 8;
+        VH.sfx.boom(Math.min(1.3, 0.6 + gz * 0.05), { gx, gy, gz });
+      }, 400 + Math.random() * 500);
+    }
+    console.log('[dev-barrage] firing', n, 'shells');
+  });
+  // Buildability harness: PLAYS every recipe through the real placement →
+  // settle → match path, in several build orders, stepping physics manually
+  // (a hidden tab pauses rAF, so the test drives the clock itself). Asserts
+  // the RIGHT monument forms, and only on the FINAL block — a mid-build
+  // transformation is the exact signature of one recipe stealing another.
+  // vh-dev-gallery can't catch this: it instantiates monuments directly,
+  // proving they RENDER, not that a player can reach them.
+  document.addEventListener('vh-dev-buildable', () => {
+    const M = VH.monuments;
+    const savedBuild = localStorage.getItem('vh-build-v1');
+    const savedDiscovered = new Set(M.discovered);
+    const results = [];
+    let simMs = (VH.clock.last || 0) + 16;
+    const stepFrames = (n) => {
+      for (let i = 0; i < n; i++) {
+        simMs += 1000 / 60;
+        VH.clock.tick(simMs);
+        W.updateBlocks(1 / 60);
+        M.update(1 / 60);
+      }
+    };
+    // 'blue' satisfies every '*' in play: plain (arc's plainOnly), not
+    // glass/lamp (obelisk's notColors), and same across a build (sameColor)
+    const orders = {
+      'rows-ltr': (cells) => [...cells].sort((a, b) => a[2] - b[2] || a[1] - b[1] || a[0] - b[0]),
+      'rows-rtl': (cells) => [...cells].sort((a, b) => a[2] - b[2] || a[1] - b[1] || b[0] - a[0]),
+      'columns': (cells) => [...cells].sort((a, b) => a[1] - b[1] || a[0] - b[0] || a[2] - b[2]),
+      'outside-in': (cells) => {
+        const mx = cells.reduce((s, c) => s + c[0], 0) / cells.length;
+        const my = cells.reduce((s, c) => s + c[1], 0) / cells.length;
+        const d = (c) => Math.abs(c[0] - mx) + Math.abs(c[1] - my);
+        return [...cells].sort((a, b) => a[2] - b[2] || d(b) - d(a));
+      },
+    };
+    // By-design exception: a pyramid base built ring-first IS a colosseum —
+    // its empty heart is satisfied, which the match rule treats as intent.
+    const expected = { 'pyramid/outside-in': 'colosseum' };
+    E.updateFaceVectors();
+    for (const r of M.RECIPES) {
+      for (const oname of Object.keys(orders)) {
+        M.clearCeremonies();
+        W.blocks = []; W.monuments = []; W.warmCenter = null;
+        W.markDirty();
+        M.discovered.clear(); // deferral + hints key off discovery state
+        const seq = orders[oname](r.cells);
+        let stolen = null;
+        for (let i = 0; i < seq.length; i++) {
+          const c = seq[i];
+          const b = W.makeBlock(c[0], c[1], c[2],
+            { color: c[3] === '*' ? 'blue' : c[3], dropOffset: 0.8 });
+          W.blocks.push(b);
+          W.notifyPlaced(b);
+          stepFrames(45); // fall + settle + match
+          if (W.monuments.length && i < seq.length - 1) {
+            stolen = W.monuments[0].id;
+            break;
+          }
+        }
+        stepFrames(140); // let any ceremony + leftover sweep finish
+        const formed = W.monuments.map(m => m.id);
+        const want = expected[r.id + '/' + oname];
+        const verdict = stolen
+          ? (want === stolen ? 'known: ' + stolen : 'STOLEN by ' + stolen)
+          : (formed.length === 1 && formed[0] === r.id ? 'PASS'
+            : formed.length === 0 ? 'NO MATCH' : 'WRONG: ' + formed.join('+'));
+        results.push({ recipe: r.id, order: oname, verdict });
+      }
+    }
+    // Restore the visitor's world + discoveries exactly as they were
+    M.clearCeremonies();
+    W.blocks = []; W.monuments = [];
+    M.discovered.clear();
+    savedDiscovered.forEach(id => M.discovered.add(id));
+    if (savedBuild !== null) localStorage.setItem('vh-build-v1', savedBuild);
+    else localStorage.removeItem('vh-build-v1');
+    W.load();
+    M.buildCodex();
+    const bad = results.filter(x => x.verdict !== 'PASS' && !x.verdict.startsWith('known'));
+    console.log('[dev-buildable]', bad.length ? bad.length + ' FAILURE(S)' : 'all pass');
+    console.table(results);
+    document.dispatchEvent(new CustomEvent('vh-dev-buildable-done', { detail: { results, bad } }));
+  });
+  // Neighbour-landing harness: instantiates every monument, drops blocks
+  // into every column touching it (8-neighbourhood of its recipe columns),
+  // stacks 3 high through the real gravity/settle path, and asserts each
+  // block settles on REAL support: the ground, another block, or a monument
+  // cell the model GENUINELY fills — judged by recomputing piece coverage,
+  // NOT by trusting mon.blocked. That distinction is the whole test: the
+  // floating-block bug (2026-08-24) put grazed tiles into blocked, so
+  // settledAt vouched for the floater and vh-dev-invariant stayed green.
+  // The MATCHER is deliberately not engaged (no notifyPlaced): blue
+  // 3-stacks ringing a monument form real arcs and great walls, whose
+  // ceremonies consumed the evidence blocks and returned a hollow PASS on
+  // this harness's first run. Physics under test, matching out of scope.
+  // The coverage threshold is a LOCAL constant so the harness stays
+  // honest if M.CLAIM_COVER_MIN is toggled (set it to 0 in the console to
+  // reproduce the bug; this harness must flag it).
+  document.addEventListener('vh-dev-neighbours', () => {
+    const M = VH.monuments;
+    const GENUINE_COVER = 0.30; // deliberate copy of M.CLAIM_COVER_MIN — see above
+    const savedBuild = localStorage.getItem('vh-build-v1');
+    const savedDiscovered = new Set(M.discovered);
+    const results = [];
+    let simMs = (VH.clock.last || 0) + 16;
+    const stepFrames = (n) => {
+      for (let i = 0; i < n; i++) {
+        simMs += 1000 / 60;
+        VH.clock.tick(simMs);
+        W.updateBlocks(1 / 60);
+        M.update(1 / 60);
+      }
+    };
+    E.updateFaceVectors();
+    for (const r of M.RECIPES) {
+      M.clearCeremonies();
+      W.blocks = []; W.monuments = []; W.warmCenter = null;
+      W.markDirty();
+      const mon = M.instantiate(r, 0, 0, 0, 0);
+      const ownCells = new Set(mon.cells.map(c => c.gx + ',' + c.gy + ',' + c.gz));
+      const claimed = new Set([...ownCells,
+        ...(mon.blocked || []).map(c => c.gx + ',' + c.gy + ',' + c.gz)]);
+      const cols = new Set(mon.cells.map(c => c.gx + ',' + c.gy));
+      // Does some piece SOLIDLY sit in this cell AND cover ≥ GENUINE_COVER
+      // of its ground area? Geometry from M.perchUnder — the ONE shared
+      // perch test — with the harness's own LOCAL threshold, so toggling
+      // M.CLAIM_COVER_MIN can't blind it. (Foreign columns only — own
+      // columns may be arbitrarily thin: spire tips are legitimate.)
+      const genuinelyFilled = (gx, gy, gz) =>
+        M.perchUnder(gx, gy, gz + 1).cover >= GENUINE_COVER;
+      const targets = new Set();
+      cols.forEach(k => {
+        const [x, y] = k.split(',').map(Number);
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+          const nk = (x + dx) + ',' + (y + dy);
+          if (!cols.has(nk) && W.isOnPlatform(x + dx, y + dy)) targets.add(nk);
+        }
+      });
+      let dropped = 0;
+      targets.forEach(k => {
+        const [gx, gy] = k.split(',').map(Number);
+        for (let n = 0; n < 3; n++) {
+          const gz = W.getStackHeight(gx, gy);
+          if (gz > W.MAX_STACK) break;
+          const b = W.makeBlock(gx, gy, gz, { color: 'blue', dropOffset: 0.8 });
+          W.blocks.push(b);
+          W.markDirty(); // no notifyPlaced — see the matcher note above
+          dropped++;
+        }
+      });
+      stepFrames(120); // fall + settle everywhere
+      const bad = [];
+      if (W.monuments.length > 1) bad.push('a monument formed mid-test — matcher leaked in');
+      W.blocks.forEach(b => {
+        if (!W.isLive(b) || b.isDebris) return;
+        const at = b.gx + ',' + b.gy + ',' + b.gz;
+        if (b.dropping) { bad.push(at + ' never settled'); return; }
+        if (b.gz === 0) return;                              // the ground
+        if (W.blockAt(b.gx, b.gy, b.gz - 1)) return;         // another block
+        const bx = b.gx, by = b.gy, bz = b.gz - 1;
+        const below = bx + ',' + by + ',' + bz;
+        if (ownCells.has(below)) return;                     // recipe cell
+        if (cols.has(bx + ',' + by) && claimed.has(below)) return; // own column
+        if (genuinelyFilled(bx, by, bz)) return;             // real foreign fill
+        bad.push(at + ' floats — nothing real underneath');
+      });
+      const alive = W.blocks.filter(b => W.isLive(b) && !b.isDebris).length;
+      if (alive !== dropped) bad.push('dropped ' + dropped + ' but only ' + alive + ' survived');
+      results.push({
+        recipe: r.id, columns: targets.size, dropped, alive,
+        verdict: bad.length ? 'FAIL: ' + bad.join(' | ') : 'PASS',
+      });
+    }
+    // Restore the visitor's world + discoveries exactly as they were
+    M.clearCeremonies();
+    W.blocks = []; W.monuments = [];
+    M.discovered.clear();
+    savedDiscovered.forEach(id => M.discovered.add(id));
+    if (savedBuild !== null) localStorage.setItem('vh-build-v1', savedBuild);
+    else localStorage.removeItem('vh-build-v1');
+    W.load();
+    M.buildCodex();
+    const bad = results.filter(x => x.verdict !== 'PASS');
+    console.log('[dev-neighbours]', bad.length ? bad.length + ' FAILURE(S)' : 'all pass');
+    console.table(results);
+    document.dispatchEvent(new CustomEvent('vh-dev-neighbours-done', { detail: { results, bad } }));
+  });
+  // Weight harness: monuments must FALL when unsupported and STAY when
+  // supported. Four checks per recipe: (1) instantiated one cell up with
+  // nothing beneath → lands on the ground, shape intact; (2) instantiated
+  // one cell up resting on a single block → stays (ANY supported column
+  // holds the whole body — the partial-ledge rule); (3) that block removed
+  // → now it lands; (4) after landing, the blocked volume was RE-DERIVED
+  // at the new height, not left stale. This is the harness the floating
+  // obelisk (2026-08-24) would have failed.
+  document.addEventListener('vh-dev-weight', () => {
+    const M = VH.monuments;
+    const savedBuild = localStorage.getItem('vh-build-v1');
+    const savedDiscovered = new Set(M.discovered);
+    const results = [];
+    const minGz = (mon) => Math.min(...mon.cells.map(c => c.gz));
+    const shape = (mon) => mon.cells.map(c => (c.gx + 9) + ',' + (c.gy + 9) + ',' + c.gz)
+      .sort().join('|');
+    const reset = () => {
+      M.clearCeremonies();
+      W.blocks = []; W.monuments = []; W.warmCenter = null;
+      W.markDirty();
+    };
+    E.updateFaceVectors();
+    for (const r of M.RECIPES) {
+      const bad = [];
+      // (1) unsupported at oz=1 → lands at 0, same shape one cell lower
+      reset();
+      let mon = M.instantiate(r, 0, 0, 1, 0);
+      const before = shape(mon);
+      W.resettle();
+      if (minGz(mon) !== 0) bad.push('did not land (minGz ' + minGz(mon) + ')');
+      const after = shape(mon);
+      const expected = before.replace(/,(\d+)(?=\||$)/g, (s, z) => ',' + (Number(z) - 1));
+      if (after !== expected) bad.push('shape changed while falling');
+      // (2) supported by one block under one column → stays put
+      reset();
+      const sup = W.makeBlock(r.cells[0][0], r.cells[0][1], 0, { color: 'blue', dropOffset: 0 });
+      sup.dropping = false; W.blocks.push(sup); W.markDirty();
+      mon = M.instantiate(r, 0, 0, 1, 0);
+      W.resettle();
+      if (minGz(mon) !== 1) bad.push('fell despite support (minGz ' + minGz(mon) + ')');
+      // (3) the support removed → lands
+      W.removeBlock(sup);
+      W.resettle();
+      if (minGz(mon) !== 0) bad.push('did not land after losing support (minGz ' + minGz(mon) + ')');
+      // (4) blocked re-derived at the new height
+      const fresh = M.blockedCellsFor(mon.model, mon.cells)
+        .map(c => c.gx + ',' + c.gy + ',' + c.gz).sort().join('|');
+      const held = (mon.blocked || [])
+        .map(c => c.gx + ',' + c.gy + ',' + c.gz).sort().join('|');
+      if (fresh !== held) bad.push('blocked volume is stale after landing');
+      if ((mon.blocked || []).some(c => c.gz < 0)) bad.push('blocked cell below the floor');
+      results.push({ recipe: r.id, verdict: bad.length ? 'FAIL: ' + bad.join(' | ') : 'PASS' });
+    }
+    // Restore the visitor's world + discoveries exactly as they were
+    M.clearCeremonies();
+    W.blocks = []; W.monuments = [];
+    M.discovered.clear();
+    savedDiscovered.forEach(id => M.discovered.add(id));
+    if (savedBuild !== null) localStorage.setItem('vh-build-v1', savedBuild);
+    else localStorage.removeItem('vh-build-v1');
+    W.load();
+    M.buildCodex();
+    const bad = results.filter(x => x.verdict !== 'PASS');
+    console.log('[dev-weight]', bad.length ? bad.length + ' FAILURE(S)' : 'all pass');
+    console.table(results);
+    document.dispatchEvent(new CustomEvent('vh-dev-weight-done', { detail: { results, bad } }));
+  });
+  // Tumble harness: drop one block onto every footprint column of every
+  // monument and assert it ends on HONEST footing — the ground, another
+  // block, or a monument surface that passes M.perchUnder — never hovering,
+  // never lost, never past the hop cap. Crystal and doghouse blocks STAY
+  // on top (good perch); the rest roll off. Set W.TUMBLE = false and
+  // re-run to prove the harness bites (blocks hover, it fails). The
+  // matcher is not engaged (no notifyPlaced): tumbled blocks scattering
+  // around a monument could line up into a real great wall and consume
+  // the evidence — the lesson vh-dev-neighbours already paid for.
+  document.addEventListener('vh-dev-tumble', () => {
+    const M = VH.monuments;
+    const savedBuild = localStorage.getItem('vh-build-v1');
+    const savedDiscovered = new Set(M.discovered);
+    const results = [];
+    let simMs = (VH.clock.last || 0) + 16;
+    const stepFrames = (n) => {
+      for (let i = 0; i < n; i++) {
+        simMs += 1000 / 60;
+        VH.clock.tick(simMs);
+        W.updateBlocks(1 / 60);
+        M.update(1 / 60);
+      }
+    };
+    E.updateFaceVectors();
+    for (const r of M.RECIPES) {
+      M.clearCeremonies();
+      W.blocks = []; W.monuments = []; W.warmCenter = null;
+      W.markDirty();
+      const mon = M.instantiate(r, 0, 0, 0, 0);
+      const cols = new Map();
+      mon.cells.forEach(c => { const k = c.gx + ',' + c.gy; if (!cols.has(k)) cols.set(k, [c.gx, c.gy]); });
+      let dropped = 0;
+      cols.forEach(([gx, gy]) => {
+        const gz = W.getStackHeight(gx, gy);
+        if (gz > W.MAX_STACK) return;
+        const b = W.makeBlock(gx, gy, gz, { color: 'blue', dropOffset: 0.8 });
+        W.blocks.push(b);
+        W.markDirty();
+        dropped++;
+      });
+      stepFrames(300); // land, teeter, roll — up to the full hop cap
+      const bad = [];
+      let alive = 0;
+      W.blocks.forEach(b => {
+        if (!W.isLive(b) || b.isDebris) return;
+        alive++;
+        const at = b.gx + ',' + b.gy + ',' + b.gz;
+        if (b.dropping) { bad.push(at + ' never settled'); return; }
+        if ((b.tumbles || 0) > 4) { bad.push(at + ' exceeded the hop cap'); return; }
+        if (b.gz === 0) return;
+        if (W.blockAt(b.gx, b.gy, b.gz - 1)) return;
+        const p = M.perchUnder(b.gx, b.gy, b.gz);
+        if (p.cover >= M.PERCH_MIN_COVER && p.gap <= M.PERCH_MAX_GAP) return;
+        bad.push(at + ' hovers on a bad perch (cover ' +
+          Math.round(p.cover * 100) + '%, gap ' + p.gap.toFixed(2) + ')');
+      });
+      if (alive !== dropped) bad.push('dropped ' + dropped + ' but ' + alive + ' survived');
+      results.push({ recipe: r.id, dropped, verdict: bad.length ? 'FAIL: ' + bad.join(' | ') : 'PASS' });
+    }
+    // Restore the visitor's world + discoveries exactly as they were
+    M.clearCeremonies();
+    W.blocks = []; W.monuments = [];
+    M.discovered.clear();
+    savedDiscovered.forEach(id => M.discovered.add(id));
+    if (savedBuild !== null) localStorage.setItem('vh-build-v1', savedBuild);
+    else localStorage.removeItem('vh-build-v1');
+    W.load();
+    M.buildCodex();
+    const bad = results.filter(x => x.verdict !== 'PASS');
+    console.log('[dev-tumble]', bad.length ? bad.length + ' FAILURE(S)' : 'all pass');
+    console.table(results);
+    document.dispatchEvent(new CustomEvent('vh-dev-tumble-done', { detail: { results, bad } }));
+  });
+  // Monument-stacking harness: exercises monumentMovePlan + the REAL
+  // commit path (applyMonumentMove). Lighthouse onto one cube: allowed,
+  // sits at z1, gravity keeps it. Pyramid onto one cube: refused (flat-
+  // surface rule). Pyramid onto a full 3×3 plinth: allowed. A raised
+  // monument dragged to open ground comes DOWN (negative dz). A monument
+  // may never stand on another monument (cubes-or-ground rule).
+  document.addEventListener('vh-dev-monstack', () => {
+    const M = VH.monuments;
+    const savedBuild = localStorage.getItem('vh-build-v1');
+    const savedDiscovered = new Set(M.discovered);
+    const bad = [];
+    const check = (name, cond) => { if (!cond) bad.push(name); };
+    const reset = () => {
+      M.clearCeremonies();
+      W.blocks = []; W.monuments = []; W.warmCenter = null;
+      W.markDirty();
+    };
+    const solidBlock = (gx, gy, gz) => {
+      const b = W.makeBlock(gx, gy, gz, { color: 'blue', dropOffset: 0 });
+      b.dropping = false; W.blocks.push(b); W.markDirty();
+      return b;
+    };
+    const minGz = (mon) => Math.min(...mon.cells.map(c => c.gz));
+    E.updateFaceVectors();
+    // 1. lighthouse onto ONE cube
+    reset();
+    solidBlock(3, 3, 0);
+    let mon = M.instantiate(M.RECIPES.find(x => x.id === 'lighthouse'), 0, 0, 0, 0);
+    let plan = monumentMovePlan(mon, 3, 3);
+    check('lighthouse onto a cube should be allowed at dz 1', plan.ok && plan.dz === 1);
+    if (plan.ok) {
+      applyMonumentMove(mon, 3, 3, plan.dz);
+      check('lighthouse should sit at z1 and stay (gravity agrees)', minGz(mon) === 1);
+    }
+    // 2. pyramid onto a single cube: flat-surface rule refuses
+    reset();
+    solidBlock(4, 4, 0);
+    mon = M.instantiate(M.RECIPES.find(x => x.id === 'pyramid'), 0, 0, 0, 0);
+    check('pyramid onto one cube should be refused', !monumentMovePlan(mon, 3, 3).ok);
+    // 3. pyramid onto a full 3×3 plinth
+    reset();
+    for (let x = 3; x <= 5; x++) for (let y = 3; y <= 5; y++) solidBlock(x, y, 0);
+    mon = M.instantiate(M.RECIPES.find(x => x.id === 'pyramid'), 0, 0, 0, 0);
+    plan = monumentMovePlan(mon, 3, 3);
+    check('pyramid onto a 3×3 plinth should be allowed at dz 1', plan.ok && plan.dz === 1);
+    if (plan.ok) {
+      applyMonumentMove(mon, 3, 3, plan.dz);
+      check('pyramid should sit at z1 on the plinth', minGz(mon) === 1);
+    }
+    // 4. a raised monument dragged to open ground comes DOWN
+    reset();
+    solidBlock(3, 3, 0);
+    mon = M.instantiate(M.RECIPES.find(x => x.id === 'lighthouse'), 0, 0, 0, 0);
+    plan = monumentMovePlan(mon, 3, 3);
+    if (plan.ok) applyMonumentMove(mon, 3, 3, plan.dz);
+    plan = monumentMovePlan(mon, -6, -6);
+    check('raised monument to open ground should resolve dz -1', plan.ok && plan.dz === -1);
+    if (plan.ok) {
+      applyMonumentMove(mon, -6, -6, plan.dz);
+      check('it should come down to z0', minGz(mon) === 0);
+    }
+    // 5. never onto another monument
+    reset();
+    M.instantiate(M.RECIPES.find(x => x.id === 'colosseum'), 0, 0, 0, 0);
+    mon = M.instantiate(M.RECIPES.find(x => x.id === 'lighthouse'), 5, 5, 0, 0);
+    check('monument onto a monument should be refused', !monumentMovePlan(mon, -5, -5).ok);
+    // Restore the visitor's world + discoveries exactly as they were
+    reset();
+    M.discovered.clear();
+    savedDiscovered.forEach(id => M.discovered.add(id));
+    if (savedBuild !== null) localStorage.setItem('vh-build-v1', savedBuild);
+    else localStorage.removeItem('vh-build-v1');
+    W.load();
+    M.buildCodex();
+    console.log('[dev-monstack]', bad.length ? bad.length + ' FAILURE(S): ' + bad.join(' | ') : 'all pass');
+    document.dispatchEvent(new CustomEvent('vh-dev-monstack-done', { detail: { bad } }));
   });
   // Perf sampler: measures REAL frame cost over N frames — render() JS time,
   // rAF delta, and gradient allocations per frame (counted by wrapping the
@@ -1133,6 +1914,12 @@
     W.save();
   }
   VH.monuments.buildCodex(); // badge shows the right count from the start
+  // Sound owns the screen-x projection; call sites just pass game objects.
+  // (This is what pans a landing tock / a detonating shell to where it
+  // actually is on screen — capped well short of hard L/R in sfx.)
+  if (VH.sfx && VH.sfx.setProjector) {
+    VH.sfx.setProjector((gx, gy, gz) => E.toScreen(gx, gy, gz).x / E.W);
+  }
   requestAnimationFrame(render);
 
   // UI entrance (CSS transitions; anime.js dependency removed)
@@ -1148,7 +1935,7 @@
   // game there. Timed to land AFTER .controls settles (600ms + 0.7s
   // transition) so it reads as emerging from the book icon.
   const codexAutoOpen = window.matchMedia('(min-width: 601px)').matches;
-  if (prefersReducedMotion) {
+  if (E.reducedMotion) {
     panel.classList.add('show');
     controls.classList.add('show');
     hotbar.classList.add('show');

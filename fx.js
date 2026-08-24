@@ -292,10 +292,15 @@
   // ── Particles: dust puffs + firework sparks (one shared system) ──
   // Particles live in GRID space so they stay correct under rotation.
   // Dust records carry only the original fields; sparks add optional ones
-  // (grav / col / a0 / floor / glow / trail) — defaults reproduce old dust
-  // behavior exactly.
+  // (grav / col / a0 / floor / glow / trail / drag / fadePow) — defaults
+  // reproduce old dust behavior exactly.
   const dust = [];
-  const MAX_PARTICLES = 400; // hard bound — spectacle, not a slideshow
+  // Raised 400 → 900 for the ember retune: sparks now live ~3s instead of
+  // ~0.8s, so ~3× more are alive at once during a Clear. The per-shell
+  // count went DOWN (12→9) to compensate — denser-looking, not
+  // denser-costing. spawnBurst silently spawns zero when full, so a low
+  // cap starves the late shells of a barrage.
+  const MAX_PARTICLES = 900; // hard bound — spectacle, not a slideshow
 
   function hexToRgb(hex) {
     const n = parseInt(hex.slice(1), 16);
@@ -320,9 +325,14 @@
     }
   };
 
-  // Firework burst: a sphere of glowing sparks tinted from the block's color.
-  // Sparks fall PAST the ground plane (floor:false) so they never carpet the
-  // grass, and draw as short trails so they read as sparks, not confetti.
+  // Firework burst — real-shell physics: a FAST burst whose outward speed
+  // the air kills in ~0.3s (drag), then a slow glowing drift down (light
+  // gravity, terminal velocity ≈ grav/drag ≈ 4 u/s) fading over ~3s. The
+  // velocity-lookback trail auto-shortens as sparks brake, so streaks turn
+  // into drifting embers with no extra code. fadePow < 1 holds brightness
+  // through the drift instead of dimming uniformly from birth.
+  // Sparks fall PAST the ground plane (floor:false) so they never carpet
+  // the grass; life (not the floor) culls them before they travel far below.
   FX.spawnBurst = (gx, gy, gz, colorKey, count) => {
     if (E.reducedMotion) return;
     const room = MAX_PARTICLES - dust.length;
@@ -333,7 +343,7 @@
       const ang = Math.random() * Math.PI * 2;
       const up = Math.random() * 2 - 1;             // vertical component
       const horiz = Math.sqrt(1 - up * up);
-      const speed = 3 + Math.random() * 5;
+      const speed = 6 + Math.random() * 7;          // fast burst; drag brakes it
       // ~20% take the bright top-face value — internal sparkle variation
       const hex = Math.random() < 0.2 ? col.top : col.front;
       dust.push({
@@ -341,11 +351,15 @@
         vx: Math.cos(ang) * horiz * speed,
         vy: Math.sin(ang) * horiz * speed,
         vz: up * speed + 1.5,
-        life: 0.55 + Math.random() * 0.45,
+        life: 2.4 + Math.random() * 1.0,
         age: 0,
         size: 1.6 + Math.random() * 1.6,
-        grav: 22, col: hexToRgb(hex), a0: 0.9,
-        floor: false, glow: true, trail: 1,
+        grav: 9, drag: 2.2, fadePow: 0.7,
+        col: hexToRgb(hex), a0: 0.9,
+        // Not every ember carries a bloom light: real embers vary in
+        // brightness, and the light stamp is where the per-frame cost
+        // lives (3× lifetime = 3× concurrent embers)
+        floor: false, glow: Math.random() < 0.45, trail: 1,
       });
     }
   };
@@ -357,19 +371,31 @@
       const p = dust[i];
       p.age += dt;
       if (p.age >= p.life) { dust.splice(i, 1); continue; }
+      // Air resistance (sparks only — dust has no drag field): brakes all
+      // three components, then gravity re-accelerates the fall toward a
+      // gentle terminal velocity. Same frame-rate-safe form as the
+      // firefly/hover damping idiom.
+      if (p.drag) {
+        const k = Math.max(0, 1 - p.drag * dt);
+        p.vx *= k; p.vy *= k; p.vz *= k;
+      }
       p.px += p.vx * dt;
       p.py += p.vy * dt;
       p.vz -= (p.grav !== undefined ? p.grav : 6) * dt;
       const nz = p.pz + p.vz * dt;
       p.pz = p.floor === false ? nz : Math.max(0, nz);
-      const fade = 1 - p.age / p.life;
+      // fadePow < 1 holds brightness longer, then lets go (embers); dust
+      // keeps the plain linear fade
+      let fade = 1 - p.age / p.life;
+      if (p.fadePow) fade = Math.pow(fade, p.fadePow);
       const s = E.toScreen(p.px, p.py, p.pz);
       const sz = p.size * E.SCALE * (0.7 + fade * 0.5);
       const col = p.col || '207,200,184';
       if (p.glow) {
         // Halo is a LIGHT (bloom pass) — was a fresh gradient per spark
-        // per frame, the single heaviest allocation in the game
-        E.addLight(s.x, s.y, sz * 2.5, col, fade * 0.35);
+        // per frame, the single heaviest allocation in the game. Dim
+        // embers stop paying for a light at all.
+        if (fade > 0.3) E.addLight(s.x, s.y, sz * 2.5, col, fade * 0.35);
         // …and the spark body draws additively so it reads as light
         ctx.globalCompositeOperation = 'lighter';
       }
