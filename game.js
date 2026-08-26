@@ -368,7 +368,8 @@
 
     const hit = hitTestBlock(p.x, p.y);
     const monHit = hit ? null : hitTestMonument(p.x, p.y);
-    if (hit && W.isTopBlock(hit)) {
+    if (hit) { // ANY visible block is grabbable — pull one out of the
+               // middle and the tower above collapses (W.resettle)
       pendingBlock = hit;           // becomes a carry only if the pointer moves
       canvas.style.cursor = 'grab';
     } else if (monHit) {
@@ -392,10 +393,11 @@
       // Plain hover (mouse only): cursor + a gentle lift on the grabbable block
       if (activePointerId === null && e.pointerType === 'mouse') {
         const hit = hitTestBlock(p.x, p.y);
-        const grabbable = hit && W.isTopBlock(hit);
-        canvas.style.cursor = grabbable || (!hit && hitTestMonument(p.x, p.y))
+        // Any block is grabbable now; buried ones skip the lift (no room
+        // to rise — world.js gates it) but still get the grab cursor.
+        canvas.style.cursor = hit || hitTestMonument(p.x, p.y)
           ? 'grab' : 'default';
-        W.hoveredBlock = grabbable ? hit : null;
+        W.hoveredBlock = hit || null;
       }
       return;
     }
@@ -412,8 +414,24 @@
       dragStartTime = clock.time;
       dragVelX = 0;
       W.hoveredBlock = null;
+      const vacated = { gx: dragBlock.gx, gy: dragBlock.gy, gz: dragBlock.gz };
       W.removeBlock(dragBlock);
-      W.resettle(); // weight: anything that rested on it falls
+      const knocked = W.resettle(true); // weight: anything that rested on
+                        // it falls — and a collapse into a valid recipe
+                        // transforms (blocks knocked loose fire the
+                        // matcher when they LAND)
+      // Removal can also complete a recipe with nothing falling at all —
+      // e.g. clearing the cell a recipe needs EMPTY (the colosseum's
+      // hole). Only when NOTHING was knocked loose: the matcher counts a
+      // falling block at its reserved landing cell, so re-checking during
+      // a collapse could start a ceremony around a block still in the air
+      // — the landing path handles the collapse case on solid ground.
+      if (!knocked && VH.monuments && VH.monuments.onBlockSettled) {
+        [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].forEach(([dx,dy,dz]) => {
+          const nb = W.blockAt(vacated.gx + dx, vacated.gy + dy, vacated.gz + dz);
+          if (nb && !nb.dropping) VH.monuments.onBlockSettled(nb);
+        });
+      }
       if (VH.sfx) VH.sfx.pop();
       canvas.style.cursor = 'grabbing';
     }
@@ -685,7 +703,11 @@
   }
   function openCodex() {
     if (!codex.hidden) return;
-    VH.monuments.buildCodex(); // fresh counts/rows before it becomes visible
+    // No rebuild here: the codex is built at boot and rebuilt on every
+    // state change (onDiscovered, plan toggles, harness restores), so it
+    // is always current while hidden. Rebuilding on open was a full DOM
+    // teardown + 13 canvas thumbnails in the same frame as the panel's
+    // entrance animation — the heaviest single beat of the old boot.
     codex.hidden = false;
     reflectCodexBtn();
   }
@@ -1040,9 +1062,17 @@
 
   // ── Render loop (driven by real time) ───────────────────────
   let perfMon = null; // set by the #dev vh-dev-perf hook; null for visitors
+  // Hit stop: hold the world still for a beat on a significant impact.
+  // The clock keeps running (shimmer phases stay continuous) but dt is
+  // zero, so blocks, dust, camera and monuments freeze mid-squash. It is
+  // the one impact technique that works with NO sound — which is exactly
+  // the entrance's situation (browsers gate audio until first input).
+  let hitStop = 0;
+  W.kickHitStop = (secs) => { if (!E.reducedMotion) hitStop = Math.max(hitStop, secs); };
   function render(nowMs) {
     const __perfT0 = perfMon ? performance.now() : 0;
-    const dt = clock.tick(nowMs);
+    let dt = clock.tick(nowMs);
+    if (hitStop > 0) { hitStop -= dt; dt = 0; }
     const ctx = E.ctx;
 
     cam.update(dt);
@@ -1212,6 +1242,9 @@
         sxy: (1 + b.squash * 0.7) * b.baseSxy,
         sz: (1 - b.squash) * b.baseSz,
         warmT: Math.max(0, b.warmUntil - clock.time), // near-miss shimmer
+        cell: [b.gx, b.gy, b.gz], // logical cell — the shimmer rim's
+        // neighbour test needs integers; the positional args carry
+        // dip/lift fractions and would miss the occupancy map
       };
       if (b.blasting) {
         drawBlastingBlock(b, drawOpacity, squashOpts);
@@ -1536,6 +1569,7 @@
     else localStorage.removeItem('vh-build-v1');
     W.load();
     M.buildCodex();
+    VH.clock.last = null; // the harness drove the clock ahead; re-baseline on the next real frame
     const bad = results.filter(x => x.verdict !== 'PASS' && !x.verdict.startsWith('known'));
     console.log('[dev-buildable]', bad.length ? bad.length + ' FAILURE(S)' : 'all pass');
     console.table(results);
@@ -1640,6 +1674,7 @@
     else localStorage.removeItem('vh-build-v1');
     W.load();
     M.buildCodex();
+    VH.clock.last = null; // the harness drove the clock ahead; re-baseline on the next real frame
     const bad = results.filter(x => x.verdict !== 'PASS');
     console.log('[dev-neighbours]', bad.length ? bad.length + ' FAILURE(S)' : 'all pass');
     console.table(results);
@@ -1780,6 +1815,7 @@
     else localStorage.removeItem('vh-build-v1');
     W.load();
     M.buildCodex();
+    VH.clock.last = null; // the harness drove the clock ahead; re-baseline on the next real frame
     const bad = results.filter(x => x.verdict !== 'PASS');
     console.log('[dev-tumble]', bad.length ? bad.length + ' FAILURE(S)' : 'all pass');
     console.table(results);
@@ -1907,10 +1943,92 @@
   });
   } // end #dev hooks
 
+  // ── The entrance: the wave, then the last block ─────────────
+  // First visit only. All 24 wave blocks release together; each one's
+  // delay comes from its distance to the far corner, bucketed into four
+  // phrases ~90 ms apart, so the arrival sweeps across the island as one
+  // physical event instead of a uniform tick (a cascade with no origin
+  // reads as loading, not arrival). Then a held beat of stillness — and
+  // ONE block falls alone onto open grass with the game's full landing
+  // weight: a wordless demonstration of the verb the visitor is about to
+  // perform. Reduced motion: makeBlock zeroes all travel, blocks appear
+  // in place, and the hero hook is never attached.
+  // Tuning knobs, gathered so the timing can be felt and adjusted in one
+  // place. Phrase gap and PAUSE are the two that decide whether this
+  // reads as an EVENT or as a loading spinner.
+  const ENT = {
+    PHRASE: 0.16,     // seconds between the wave's four groups
+    PAUSE: 0.48,      // stillness after the wave, before the last block
+    HERO_DROP: 20,    // grid units — starts above the frame, falls INTO it
+    HERO_STOP: 0.09,  // hit-stop held on the moment of impact
+    DIP: 1.2, SHAKE: 2.2, DUST: 14, SKY: 0.9,
+  };
+
+  function runEntrance() {
+    const span = W.GRID_MAX - W.GRID_MIN;
+    W.spawnBlocks(24, (gx, gy, gz) => {
+      const d = (gx - W.GRID_MIN) + (gy - W.GRID_MIN); // Manhattan distance from the far corner
+      const phrase = Math.min(3, Math.floor(d / (span / 2 + 0.01)));
+      return {
+        dropOffset: 6 + Math.random() * 2 + gz * 1.2,
+        dropDelay: 0.15 + phrase * ENT.PHRASE + (Math.random() * 0.04 - 0.02),
+      };
+    });
+    // The last block wants a CLEARING, not merely an empty tile: among 24
+    // neighbours one more cube is invisible. Score every open tile by how
+    // much empty grass surrounds it, biased toward the centre, so the
+    // block that teaches the verb lands where the eye can find it.
+    let tile = null, best = -Infinity;
+    for (let gx = W.GRID_MIN; gx <= W.GRID_MAX; gx++) {
+      for (let gy = W.GRID_MIN; gy <= W.GRID_MAX; gy++) {
+        if (W.getStackHeight(gx, gy) !== 0) continue;
+        let open = 0;
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            if (!W.isOnPlatform(gx + dx, gy + dy) ||
+                W.getStackHeight(gx + dx, gy + dy) === 0) open++;
+          }
+        }
+        const centre = 1 - (Math.abs(gx) + Math.abs(gy)) / span;
+        const score = open + centre * 2 + Math.random() * 0.5;
+        if (score > best) { best = score; tile = [gx, gy]; }
+      }
+    }
+    if (!tile) return; // no open ground (can't happen with 24 blocks) — the wave alone will do
+    // Released after the wave has fully settled AND the pause has run.
+    const waveLands = 0.15 + 3 * ENT.PHRASE + 0.24;
+    const hero = W.makeBlock(tile[0], tile[1], 0, {
+      dropOffset: ENT.HERO_DROP,
+      dropDelay: waveLands + ENT.PAUSE,
+    });
+    if (!E.reducedMotion) {
+      hero.onLand = () => {
+        // Everything the game has for "this mattered", spent at once and
+        // only here: the world stops dead for a beat on the squashed
+        // frame, the ground flinches, the screen kicks, and the sky
+        // answers (text stars hold their glow ~4× longer, so it lingers).
+        W.kickHitStop(ENT.HERO_STOP);
+        W.kickDip(ENT.DIP);
+        E.kickShake(ENT.SHAKE);
+        if (VH.fx) {
+          VH.fx.spawnDust(tile[0], tile[1], 0, ENT.DUST);
+          VH.fx.igniteStars(0.42, 0.08, 0.32, ENT.SKY);
+        }
+      };
+    }
+    W.blocks.push(hero);
+    W.markDirty();
+  }
+
   // ── Boot ────────────────────────────────────────────────────
-  // Restore the visitor's saved build; fresh visitors get a random scatter.
-  if (!W.load()) {
-    W.spawnBlocks(25);
+  // #replay — forget the saved build so the FIRST-VISIT entrance runs
+  // again. The hash is kept, so every reload replays it: the only
+  // practical way to judge a 2-second sequence is to watch it 20 times.
+  if (location.hash === '#replay') localStorage.removeItem('vh-build-v1');
+  // Restore the visitor's saved build; fresh visitors get the entrance.
+  const firstVisit = !W.load();
+  if (firstVisit) {
+    runEntrance();
     W.save();
   }
   VH.monuments.buildCodex(); // badge shows the right count from the start
@@ -1922,6 +2040,23 @@
   }
   requestAnimationFrame(render);
 
+  // The first gesture is the moment the world gains its voice — audio is
+  // browser-gated until a real interaction, so the entrance is silent by
+  // policy and the first touch answers with the ambience swell + one
+  // warm note (see sfx.unlock). {once}: it's a greeting, not a listener.
+  const greet = () => { if (VH.sfx && VH.sfx.unlock) VH.sfx.unlock(); };
+  window.addEventListener('pointerdown', greet, { once: true, capture: true });
+  window.addEventListener('keydown', greet, { once: true, capture: true });
+
+  // Build the audio graph (incl. generating the reverb — a few ms of
+  // pure math that used to fire mid-cascade and stall the entrance) in
+  // idle time AFTER everything has settled. The context stays suspended
+  // and silent; if the visitor clicks sooner, unlock() builds it instead.
+  setTimeout(() => {
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 200));
+    idle(() => { if (VH.sfx && VH.sfx.prime) VH.sfx.prime(); });
+  }, firstVisit ? 2600 : 1600);
+
   // UI entrance (CSS transitions; anime.js dependency removed)
   const panel = document.getElementById('panel');
   const controls = document.getElementById('controls');
@@ -1932,9 +2067,12 @@
   }
   // Codex opens by default on desktop so a visitor immediately sees there
   // are 13 monuments to find. Phones keep it shut — it would smother the
-  // game there. Timed to land AFTER .controls settles (600ms + 0.7s
+  // game there. Width alone is not the test: a phone in landscape is
+  // 844px wide but still a phone, so coarse pointers stay shut at any
+  // width. Timed to land AFTER .controls settles (600ms + 0.7s
   // transition) so it reads as emerging from the book icon.
-  const codexAutoOpen = window.matchMedia('(min-width: 601px)').matches;
+  const codexAutoOpen = window.matchMedia('(min-width: 601px)').matches
+    && !window.matchMedia('(pointer: coarse)').matches;
   if (E.reducedMotion) {
     panel.classList.add('show');
     controls.classList.add('show');
@@ -1944,10 +2082,28 @@
     reflectSwatches();
     if (codexAutoOpen) openCodex();
   } else {
-    setTimeout(() => { panel.classList.add('show'); controls.classList.add('show'); }, 600);
-    setTimeout(() => { hotbar.classList.add('show'); uiReady = true; reflectSwatches(); }, 1000);
-    if (codexAutoOpen) setTimeout(openCodex, 1400);
-    setTimeout(() => { hint.classList.add('show'); }, 1800);
-    setTimeout(() => { hint.classList.remove('show'); }, 7000);
+    // The interface waits for the WORLD. Two reasons: the panels'
+    // backdrop blur re-samples the canvas behind them every frame, so
+    // fading them in over 25 falling blocks was the most expensive thing
+    // the old boot did — and choreographically, the world should finish
+    // arriving before the interface offers itself. Also gated on the
+    // fonts, so text can never re-flow inside a moving panel (the old
+    // mid-transition font swap read as jank).
+    const bootT = performance.now();
+    // After the hero has landed and its bounces have settled (the canvas
+    // owns the stage until the world is finished arriving).
+    const uiAt = firstVisit ? 2150 : 500;
+    Promise.race([
+      document.fonts.ready,
+      new Promise((res) => setTimeout(res, 1000)), // a font failure must never hold the UI
+    ]).then(() => {
+      const go = (offset, fn) =>
+        setTimeout(fn, Math.max(0, bootT + uiAt + offset - performance.now()));
+      go(0,    () => { panel.classList.add('show'); controls.classList.add('show'); });
+      go(250,  () => { hotbar.classList.add('show'); uiReady = true; reflectSwatches(); });
+      if (codexAutoOpen) go(500, openCodex);
+      go(700,  () => { hint.classList.add('show'); });
+      go(5900, () => { hint.classList.remove('show'); });
+    });
   }
 })();

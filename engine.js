@@ -284,13 +284,16 @@
   };
 
   // ── Clock (real time, not frame count) ──────────────────────
-  // dt is capped so a backgrounded tab resuming doesn't explode physics.
+  // dt is capped so a backgrounded tab resuming doesn't explode physics,
+  // and floored at 0: if anything drives the clock ahead of real time
+  // (the #dev harnesses tick it manually), a negative dt would blow up
+  // exponential decays (shake → Infinity → every coordinate NaN).
   const clock = (VH.clock = { time: 0, dt: 0, last: null });
   const DT_CAP = 1 / 20; // max 50 ms per step
 
   clock.tick = (nowMs) => {
     if (clock.last === null) clock.last = nowMs;
-    clock.dt = Math.min((nowMs - clock.last) / 1000, DT_CAP);
+    clock.dt = Math.min(Math.max((nowMs - clock.last) / 1000, 0), DT_CAP);
     clock.last = nowMs;
     clock.time += clock.dt;
     return clock.dt;

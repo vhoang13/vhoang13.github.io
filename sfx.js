@@ -108,8 +108,11 @@
     return buf;
   }
 
-  function ensure() {
-    if (S.state === 'off') return null;
+  // Graph construction, split out of ensure(): prime() calls it during
+  // idle time after the entrance so the reverb generation (a few ms of
+  // pure math) can never land inside the cascade. The context it creates
+  // is suspended (silent) until the first user gesture.
+  function build() {
     if (!actx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
@@ -180,11 +183,58 @@
         buses[name] = { in: inp, duck };
       });
 
-      startAmbience();
     }
-    if (actx.state === 'suspended') actx.resume();
     return actx;
   }
+
+  // Has the visitor EVER interacted? Pre-activation, audio can never be
+  // heard, so cues must cost nothing: no graph build, no resume attempt
+  // (each rejected resume logs a browser warning). Browsers without
+  // userActivation report true — the old opportunistic behaviour.
+  const hasActivation = () =>
+    !navigator.userActivation || navigator.userActivation.hasBeenActive;
+
+  function ensure() {
+    if (S.state === 'off') return null;
+    if (!actx) {
+      if (!hasActivation()) return null; // silent no-op before the first gesture
+      if (!build()) return null;
+    }
+    if (actx.state === 'suspended') {
+      // DROP this cue rather than schedule it against a frozen clock —
+      // cues scheduled while suspended pile up at t≈0 and thaw as a
+      // burst on the first click (the boot-cascade bug).
+      if (hasActivation()) actx.resume();
+      return null;
+    }
+    return actx;
+  }
+
+  // Build the graph ahead of need, without playing anything. Safe to call
+  // pre-gesture: the context sits suspended and costs nothing until the
+  // first real interaction resumes it.
+  S.prime = () => { if (S.state !== 'off') build(); };
+
+  // ── The first touch: the world gains its voice ─────────────────
+  // The entrance is silent by browser policy (no audio before a real
+  // gesture), so the FIRST gesture is the moment the room blooms: the
+  // ambience bed swells in over its 4 s ramp, and one warm note — low,
+  // mostly reverb — answers the touch. A greeting, not a fanfare.
+  let greeted = false;
+  S.unlock = () => {
+    if (greeted || S.state === 'off') return;
+    if (!build()) return;
+    greeted = true;
+    const p = actx.state === 'suspended' ? actx.resume() : Promise.resolve();
+    Promise.resolve(p).then(() => {
+      if (S.state === 'off' || !actx) return;
+      startAmbience(); // deliberately NOT started at build: its sources
+      // would log start-while-suspended warnings and gain nothing — the
+      // 4 s swell belongs to this moment anyway.
+      tone(actx.currentTime + 0.05, { type: 'sine', f0: 261.63,
+        peak: 0.10, atk: 0.02, dec: 0.9, bus: 'music', send: 0.55, jitter: 0 });
+    }).catch(() => {});
+  };
 
   // ── State / volume ─────────────────────────────────────────────
   S.setState = (state) => {
@@ -199,10 +249,14 @@
       if (actx && masterVol) masterVol.gain.setTargetAtTime(0.0001, actx.currentTime, 0.05);
       return;
     }
-    const ctx = ensure(); if (!ctx) return;
+    // build(), not ensure(): state changes must apply even while the
+    // context is still suspended pre-resume (gain values are state, not
+    // cues — they take effect the moment the context runs).
+    if (!build()) return;
+    if (actx.state === 'suspended') actx.resume();
     // Perceptual, not linear; smoothed so a live control never zippers.
     masterVol.gain.setTargetAtTime(
-      state === 'quiet' ? Math.pow(0.45, 1.8) : 1, ctx.currentTime, 0.02);
+      state === 'quiet' ? Math.pow(0.45, 1.8) : 1, actx.currentTime, 0.02);
     if (state === 'full') startAmbience(); else stopAmbience(1);
   };
 

@@ -188,9 +188,18 @@
   // in flight re-aims. Squash/dust/thump fire on each real landing via the
   // normal impact path. Called after world mutations (pickup, monument
   // move, ceremony sweep, blast reap, load).
-  W.resettle = () => {
+  // notifyLandings: blocks knocked loose will fire the monument matcher
+  // when they land (via the existing _playerPlaced → fireSettled plumbing).
+  // Passed ONLY by deliberate player actions — pulling a block out of a
+  // stack can collapse the tower into a valid recipe, and that should
+  // transform. NEVER passed by W.load() (a saved build must not
+  // spontaneously transform on page load) or by ceremony/blast sweeps.
+  // Returns the number of BLOCKS knocked loose, so a caller can tell a
+  // real collapse from a clean removal.
+  W.resettle = (notifyLandings) => {
     if (occupancyDirty) rebuildOccupancy();
     const landings = new Map(); // monument → total cells fallen; hook fires ONCE, after
+    let knockedBlocks = 0;
     let knocked = true;
     while (knocked) {
       knocked = false;
@@ -200,8 +209,10 @@
         b.dropping = true;      // falls from exactly where it is
         b.dropVel = 0;
         b.dropOffset = 0;
+        if (notifyLandings) b._playerPlaced = true;
         settled.delete(b.gx + ',' + b.gy + ',' + b.gz);
         knocked = true;
+        knockedBlocks++;
       });
       // MONUMENTS have weight too — same law, applied to the whole body.
       // (An obelisk built on a block hung in the air when that block was
@@ -259,6 +270,7 @@
     W.retargetFalling();
     W.markDirty();
     if (W.onMonumentLanded) landings.forEach((drop, mon) => W.onMonumentLanded(mon, drop));
+    return knockedBlocks;
   };
 
   // Optional landing feedback, registered by game.js (dip/dust/tock live
@@ -286,6 +298,8 @@
     if (VH.monuments && VH.monuments.onBlockSettled) VH.monuments.onBlockSettled(b);
   }
 
+  // No longer an interaction gate (any visible block is grabbable since
+  // 2026-08-25) — now only gates the hover LIFT, which needs headroom.
   W.isTopBlock = (b) =>
     !W.blocks.some(o => o.gx === b.gx && o.gy === b.gy && o.gz > b.gz && W.isLive(o));
 
@@ -334,12 +348,15 @@
     return b;
   };
 
-  W.spawnBlocks = (count) => {
+  // Optional `plan(gx, gy, gz, i)` returns makeBlock opts, so a caller
+  // (the entrance) can choreograph heights/delays without a second spawn
+  // path. No plan = the original uniform stagger.
+  W.spawnBlocks = (count, plan) => {
     for (let i = 0; i < count; i++) {
       const gx = W.GRID_MIN + Math.floor(Math.random() * (W.GRID_MAX - W.GRID_MIN + 1));
       const gy = W.GRID_MIN + Math.floor(Math.random() * (W.GRID_MAX - W.GRID_MIN + 1));
       const gz = W.getStackHeight(gx, gy);
-      W.blocks.push(W.makeBlock(gx, gy, gz, {
+      W.blocks.push(W.makeBlock(gx, gy, gz, plan ? plan(gx, gy, gz, i) : {
         dropOffset: 8 + Math.random() * 6 + gz * 1.5,
         dropDelay: i * 0.05 + Math.random() * 0.066, // staggered arrival
       }));
@@ -390,13 +407,18 @@
     try { data = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (_) {}
     if (!data || (data.v !== 1 && data.v !== 2) || !Array.isArray(data.blocks)) return false;
     let i = 0;
+    // Welcome-back cascade: whole spread capped at 0.35 s regardless of
+    // build size. For a returner the message is "your thing is still
+    // here" — a long re-choreography of a 60-block build would be a lie.
+    const spread = Math.min(0.35, data.blocks.length * 0.02);
+    const denom = Math.max(1, data.blocks.length - 1);
     for (const item of data.blocks) {
       const [gx, gy, gz, color] = item;
       if (!W.isOnPlatform(gx, gy) || gz < 0 || gz > W.MAX_STACK || !W.COLORS[color]) continue;
       W.blocks.push(W.makeBlock(gx, gy, gz, {
         color,
         dropOffset: 2 + gz * 0.6,
-        dropDelay: i * 0.02, // gentle welcome-back cascade
+        dropDelay: (i / denom) * spread,
       }));
       i++;
     }
@@ -636,6 +658,9 @@
       }
     }
     if (strength > 0.2 && VH.sfx) VH.sfx.tock(b.gz, strength, b); // musical stacking, panned
+    // Optional one-shot landing hook (the entrance's hero block): fires
+    // on the FIRST impact only, before the bounces.
+    if (b.onLand) { const fn = b.onLand; b.onLand = null; fn(b, impactVel); }
     // Compression ripple down the stack below
     W.blocks.forEach(o => {
       if (o !== b && o.gx === b.gx && o.gy === b.gy && o.gz < b.gz && !o.blasting) {
@@ -646,9 +671,13 @@
   }
 
   W.updateBlocks = (dt) => {
-    // Platform dip spring
+    // Platform dip spring — snapped to true zero at rest like squash and
+    // slide. A never-quite-zero dip made every render-time gz fractional
+    // FOREVER, which silently broke integer-keyed cell lookups downstream
+    // (the shimmer rim's neighbour test was the victim).
     W.dipVel += (-120 * W.dip - 10 * W.dipVel) * dt;
     W.dip = Math.min(0.2, W.dip + W.dipVel * dt);
+    if (Math.abs(W.dip) < 0.001 && Math.abs(W.dipVel) < 0.01) { W.dip = 0; W.dipVel = 0; }
 
     W.blocks.forEach(b => {
       // Squash spring (runs for every block)
@@ -659,9 +688,14 @@
           b.squash = 0; b.squashVel = 0;
         }
       }
-      // Hover lift eases toward its target
-      const liftTarget = (b === W.hoveredBlock) ? 0.12 : 0;
+      // Hover lift eases toward its target. Buried blocks (something
+      // directly above) don't lift — there is no room, and a middle block
+      // rising into its neighbour reads as a glitch. They are still
+      // grabbable; the cursor carries the feedback. Snapped at rest so
+      // lift can't leave gz permanently fractional (see the dip note).
+      const liftTarget = (b === W.hoveredBlock && W.isTopBlock(b)) ? 0.12 : 0;
       b.lift += (liftTarget - b.lift) * Math.min(1, 12 * dt);
+      if (Math.abs(b.lift - liftTarget) < 0.001) b.lift = liftTarget;
 
       // Tumble slide eases home — the sideways half of the roll-off arc
       if (b.slideX || b.slideY) {
@@ -939,14 +973,28 @@
       // crease) → draw; one face-neighbour warm (flat continuation) →
       // skip; none (silhouette, incl. diagonal touch) → draw.
       const now = VH.clock.time;
+      // Neighbour lookups use the block's LOGICAL cell (opts.cell), not
+      // the render coordinates this function was called with — those
+      // carry dip/lift/squash fractions, and the occupancy map is keyed
+      // on integers, so a fractional gz made every lookup miss: both
+      // skip rules went dead, every block stroked all 9 edges, and the
+      // "one glowing shape" promise broke into per-block boxes + seams.
+      const cell = opts.cell;
       const warmAt = (dx2, dy2, dz2) => {
-        const nb = W.blockAt(gx + dx2, gy + dy2, gz + dz2);
+        if (!cell) return false;
+        const nb = W.blockAt(cell[0] + dx2, cell[1] + dy2, cell[2] + dz2);
         return !!nb && !nb.dropping && nb.warmUntil > now;
       };
       const sxv = xVisible ? 1 : 0, syv = yVisible ? 1 : 0; // viewer-facing sides
       const C = (s, t, h) =>
         P(s * ux.x + t * uy.x + h * uz.x, s * ux.y + t * uy.y + h * uz.y);
-      ctx.globalAlpha = opacity * env * (0.50 + pulse * 0.50);
+      // The RIM pulses group-wide (no per-cell phase): the whole outline
+      // is one stroke around one shape, and neighbouring blocks breathing
+      // at different alphas re-introduced the seams the edge-merging just
+      // removed. The travelling per-cell pulse stays on the WASH above —
+      // that is what makes the blocks read as one arrangement.
+      const rimPulse = E.reducedMotion ? 0.65 : 0.5 + 0.5 * Math.sin(VH.clock.time * 4.2);
+      ctx.globalAlpha = opacity * env * (0.50 + rimPulse * 0.50);
       ctx.strokeStyle = '#ffd968';
       ctx.lineWidth = Math.max(1.5, 2 * E.SCALE);
       ctx.lineCap = 'round';

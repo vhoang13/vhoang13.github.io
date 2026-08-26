@@ -130,7 +130,9 @@ body {
   font-weight: 500;
   border-radius: 7px;
   text-decoration: none;
-  transition: all 0.2s ease;
+  /* Only what hover actually changes — `all` also transitioned the
+     backdrop context and made the boot fade-in costlier than it looked */
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
 }
 
 .link-btn:first-child {
@@ -190,7 +192,8 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  /* Only what hover/active actually change (see .link-btn note) */
+  transition: color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 
 .ctrl-btn:hover {
@@ -634,12 +637,18 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
 
 /* ============================================
    Mobile
-   ============================================ */
-@media (max-width: 600px) {
+   ============================================
+   Two ways to be a phone: narrow (portrait) or short-with-touch
+   (landscape — 844px wide but only 390px tall, so a width test
+   alone hands it desktop paddings it has no room for). */
+@media (max-width: 600px), (pointer: coarse) and (max-height: 600px) {
   .panel {
     top: 1rem;
     left: 1rem;
-    max-width: 200px;
+    /* Never reach the controls: 100vw − controls (40vw) − side
+       margins (2rem) − 1rem breathing room. At 320px wide the two
+       used to overlap by 40px. */
+    max-width: min(200px, calc(60vw - 3rem));
     padding: 1rem 1.25rem;
   }
 
@@ -686,11 +695,17 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
 
   .swatches {
     bottom: 5.3rem;
+    /* Ten fixed swatches = 355px — clipped 17px each end on a 320px
+       screen. Cap the row and let the swatches shrink to fit. */
+    max-width: calc(100vw - 0.75rem);
   }
 
   .swatch {
-    width: 30px;   /* fatter touch targets on mobile */
-    height: 30px;
+    flex: 0 1 30px; /* fatter touch targets on mobile; shrink to fit narrow screens */
+    width: 30px;
+    min-width: 0;
+    height: auto;
+    aspect-ratio: 1;
   }
 
   .hint {
