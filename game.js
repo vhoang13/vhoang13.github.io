@@ -178,6 +178,7 @@
   let pointerScreen = { x: 0, y: 0 };
   let pointerDownPos = { x: 0, y: 0 };
   let hoverGrid = null;
+  let hoverPreview = null; // quiet mouse-hover ghost: where a TAP would place
   let rotateStartAngle = 0;
   let rotateStartX = 0;
   let didDrag = false;
@@ -201,10 +202,12 @@
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
-  function updateHoverTarget() {
-    hoverGrid = null;
+  // ONE cursor→landing-cell resolver, shared by the drag target, the
+  // hover preview, and the ground tap, so what the preview shows is
+  // provably where a release/tap will put the block.
+  function resolveTarget(px, py) {
     const { ux, uy } = E.fv;
-    // Test the LANDING SURFACE of each column (the visible top of the
+    // 1) Test the LANDING SURFACE of each column (the visible top of the
     // stack — the diamond the new block will sit ON), tallest first.
     // The old code tested where the new block's LID would end up — a
     // region floating one full block above the stack, which a cursor
@@ -223,17 +226,36 @@
       const q1 = { x: ref.x + ux.x, y: ref.y + ux.y };
       const q2 = { x: ref.x + ux.x + uy.x, y: ref.y + ux.y + uy.y };
       const q3 = { x: ref.x + uy.x, y: ref.y + uy.y };
-      if (E.pointInQuad(pointerScreen.x, pointerScreen.y, ref, q1, q2, q3)) {
-        hoverGrid = { gx: c.gx, gy: c.gy, gz: c.gz };
-        return;
+      if (E.pointInQuad(px, py, ref, q1, q2, q3)) {
+        return { gx: c.gx, gy: c.gy, gz: c.gz };
       }
     }
-    // Fallback to ground-level grid if no top face hit
-    const grid = E.toGrid(pointerScreen.x, pointerScreen.y);
-    if (W.isOnPlatform(grid.gx, grid.gy)) {
-      const gz = W.getStackHeight(grid.gx, grid.gy);
-      if (gz <= W.MAX_STACK) hoverGrid = { gx: grid.gx, gy: grid.gy, gz };
+    // 2) A block's visible SIDE face → that block's column. This is where
+    // the cursor naturally sits when aiming at a tall stack, and the old
+    // ground fallback resolved it to a cell several tiles BEHIND the
+    // stack (one grid cell of error per unit of height) — near the far
+    // edge that projected clean off the platform and destroyed the block.
+    const face = hitTestBlock(px, py);
+    if (face) {
+      const gz = W.getStackHeight(face.gx, face.gy);
+      if (gz <= W.MAX_STACK) return { gx: face.gx, gy: face.gy, gz };
     }
+    // 3) Ground plane — with a one-cell dead-zone past the edge, so a
+    // slight overshoot places on the edge cell instead of dropping the
+    // block into the void. Only a decisive throw (≥ a full cell out)
+    // reaches the void.
+    const grid = E.toGrid(px, py);
+    const cgx = Math.max(W.GRID_MIN, Math.min(W.GRID_MAX, grid.gx));
+    const cgy = Math.max(W.GRID_MIN, Math.min(W.GRID_MAX, grid.gy));
+    if (Math.abs(grid.gx - cgx) <= 1 && Math.abs(grid.gy - cgy) <= 1) {
+      const gz = W.getStackHeight(cgx, cgy);
+      if (gz <= W.MAX_STACK) return { gx: cgx, gy: cgy, gz };
+    }
+    return null;
+  }
+
+  function updateHoverTarget() {
+    hoverGrid = resolveTarget(pointerScreen.x, pointerScreen.y);
   }
 
   function restoreDragBlockToOrigin() {
@@ -301,9 +323,18 @@
       restoreDragBlockToOrigin();
       W.save();
     } else {
+      // Height-aware void test — the same fix monuments got: the raw
+      // cursor projected onto the GROUND plane ignores height, so a
+      // cursor visually over a tall stack or monument near the far edge
+      // projected off-platform and destroyed the block. Reaching this
+      // branch means resolveTarget found no landing cell; the remaining
+      // question is bare-ground vs void, plus "is the cursor actually
+      // over a monument's body" (not a landing surface, but definitely
+      // not the void either).
       const grid = E.toGrid(pointerScreen.x, pointerScreen.y);
-      if (W.isOnPlatform(grid.gx, grid.gy)) {
-        // On the platform but no valid spot (e.g. full stack) → go home
+      if (W.isOnPlatform(grid.gx, grid.gy) ||
+          hitTestMonument(pointerScreen.x, pointerScreen.y)) {
+        // Over the platform but no valid spot (e.g. full stack) → go home
         restoreDragBlockToOrigin();
         W.save();
       } else {
@@ -360,6 +391,7 @@
     if (activePointerId !== null) return; // one pointer drives; ignore extra touches
     activePointerId = e.pointerId;
     canvas.setPointerCapture(e.pointerId);
+    hoverPreview = null; // a gesture owns the pointer now; recomputed on next hover
 
     const p = eventPos(e);
     pointerDownPos = p;
@@ -395,9 +427,18 @@
         const hit = hitTestBlock(p.x, p.y);
         // Any block is grabbable now; buried ones skip the lift (no room
         // to rise — world.js gates it) but still get the grab cursor.
-        canvas.style.cursor = hit || hitTestMonument(p.x, p.y)
-          ? 'grab' : 'default';
+        const grabbable = hit || hitTestMonument(p.x, p.y);
+        canvas.style.cursor = grabbable ? 'grab' : 'default';
         W.hoveredBlock = hit || null;
+        // The quiet preview: where a tap would place a block. Same
+        // resolver as the drag target and the tap commit, so the three
+        // can never disagree. Mouse only — touch has no hover.
+        // ONE AFFORDANCE AT A TIME: over something grabbable the answer
+        // is "pick this up" — the grab cursor and the hover lift already
+        // say so — so the placement ghost stands down. Showing both at
+        // once answered a question the visitor wasn't asking and read as
+        // clutter exactly when they were aiming to grab.
+        hoverPreview = grabbable ? null : resolveTarget(p.x, p.y);
       }
       return;
     }
@@ -580,17 +621,19 @@
       releaseCarriedBlock(cancelled);
     } else if (isRotating) {
       if (!didDrag && !cancelled) {
-        // Click/tap on the platform → place a block
-        const grid = E.toGrid(pointerScreen.x, pointerScreen.y);
-        if (W.isOnPlatform(grid.gx, grid.gy)) {
-          const gz = W.getStackHeight(grid.gx, grid.gy);
-          if (gz <= W.MAX_STACK) {
-            const placed = W.makeBlock(grid.gx, grid.gy, gz, { color: placeColor() });
-            W.blocks.push(placed);
-            if (E.reducedMotion && VH.sfx) VH.sfx.tock(gz, 0.6);
-            W.notifyPlaced(placed);
-            W.save();
-          }
+        // Click/tap on the platform → place a block, via the SAME
+        // resolver as the hover preview and the drag target (the old
+        // ground-plane projection put a tap on a tower's side face onto
+        // the cell BEHIND the tower — one cell of error per unit of
+        // height, and blind: there was no preview for taps at all).
+        const target = resolveTarget(pointerScreen.x, pointerScreen.y);
+        if (target) {
+          const placed = W.makeBlock(target.gx, target.gy, target.gz,
+            { color: placeColor() });
+          W.blocks.push(placed);
+          if (E.reducedMotion && VH.sfx) VH.sfx.tock(target.gz, 0.6);
+          W.notifyPlaced(placed);
+          W.save();
         }
         cam.angle = rotateStartAngle; // undo sub-threshold wiggle
         // If the tap interrupted a snap animation, finish the snap
@@ -617,6 +660,9 @@
   canvas.addEventListener('lostpointercapture', (e) => {
     if (e.pointerId === activePointerId) endPointer(e, true);
   });
+  // The hover ghost must not linger when the mouse leaves the canvas
+  // (onto a panel or out of the window) — it recomputes on re-entry.
+  canvas.addEventListener('pointerleave', () => { hoverPreview = null; });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // Keyboard: quarter-turn rotation (reads as "game", helps accessibility)
@@ -625,9 +671,11 @@
     // Arrows match the drag: ArrowRight turns the world the way dragging right does
     if (k === 'ArrowLeft' || k === 'Left') {
       cam.rotateStep(1); if (VH.sfx) VH.sfx.uiTick('rotate'); e.preventDefault();
+      hoverPreview = null; // projection is changing; recomputed on next mouse move
     }
     else if (k === 'ArrowRight' || k === 'Right' || k === 'r' || k === 'R') {
       cam.rotateStep(-1); if (VH.sfx) VH.sfx.uiTick('rotate'); e.preventDefault();
+      hoverPreview = null;
     }
     else if (k >= '1' && k <= '4') {
       selectSlot(['color', 'grass', 'lamp', 'glass'][+k - 1]);
@@ -1175,6 +1223,14 @@
     // the monument's pieces cast growing shadows as they pop in — no more
     // 2-second shadow hole + single-frame snap when a monument forms
     VH.monuments.pushShadowCasters(dip, heightFade);
+    // The landing cell's shadow during a drag — the one depth cue a drag
+    // otherwise LOSES (the carried block left W.blocks at pickup, so
+    // nothing casts). One box at the future position; the composite is
+    // clipped to the platform top, so with no valid target there is no
+    // shadow — its absence is the "this will fall" warning, physically.
+    if (isDragging && hoverGrid) {
+      E.addShadowBox(hoverGrid.gx, hoverGrid.gy, hoverGrid.gz, 1, 1, 0.6, dip);
+    }
     // The receiving surface: the platform's top diamond, live-rotated + dipped
     E.shadowComposite([
       E.toScreen(W.GRID_MIN, W.GRID_MIN, -dip),
@@ -1242,9 +1298,6 @@
         sxy: (1 + b.squash * 0.7) * b.baseSxy,
         sz: (1 - b.squash) * b.baseSz,
         warmT: Math.max(0, b.warmUntil - clock.time), // near-miss shimmer
-        cell: [b.gx, b.gy, b.gz], // logical cell — the shimmer rim's
-        // neighbour test needs integers; the positional args carry
-        // dip/lift fractions and would miss the occupancy map
       };
       if (b.blasting) {
         drawBlastingBlock(b, drawOpacity, squashOpts);
@@ -1276,9 +1329,19 @@
     // Ambient life
     FX.updateAndDrawFireflies(dt);
 
-    // Placement preview while dragging: ghost cube on the landing spot
-    if (isDragging && hoverGrid && W.isOnPlatform(hoverGrid.gx, hoverGrid.gy)) {
-      W.drawGhostBlock(hoverGrid.gx, hoverGrid.gy, hoverGrid.gz);
+    // Placement preview while dragging: the block's real colours at the
+    // landing spot, base diamond emphasised (resolveTarget only returns
+    // on-platform cells, so no extra gate needed)
+    if (isDragging && hoverGrid) {
+      W.drawGhostBlock(hoverGrid.gx, hoverGrid.gy, hoverGrid.gz,
+        dragBlock && dragBlock.color);
+    }
+
+    // Quiet hover preview (mouse only, no gesture in flight): where a
+    // TAP would place a block — same resolver as the tap commit.
+    if (!isDragging && !dragMon && activePointerId === null && hoverPreview) {
+      W.drawGhostBlock(hoverPreview.gx, hoverPreview.gy, hoverPreview.gz,
+        selectedType === 'color' ? chosenColor : selectedType, 0.5);
     }
 
     // Monument move preview: the whole structure ghosted at the
@@ -1296,17 +1359,23 @@
       });
     }
 
-    // The carried block: pops on pickup, tilts with drag velocity
+    // The carried block: pops on pickup, tilts with drag velocity.
+    // With no valid target under it (the void, or a full stack) it tints
+    // lightRed and dims — the same "refused" colour the monument ghost
+    // uses — so "letting go here loses this" is said AT the cursor,
+    // where the eye already is. Static tint: reduced-motion safe.
     if (isDragging && dragBlock) {
       const t = E.TILE * E.SCALE;
       const popT = Math.min((clock.time - dragStartTime) / 0.12, 1);
       const pop = 1 + 0.15 * (1 - Math.pow(1 - popT, 3)); // ease-out to 1.15×
       const tilt = Math.max(-0.14, Math.min(0.14, dragVelX * 0.00012));
+      const doomed = !hoverGrid;
       ctx.save();
       ctx.translate(pointerScreen.x, pointerScreen.y - t);
       ctx.rotate(tilt);
       ctx.scale(pop, pop);
-      W.drawBlockAtScreen(0, 0, dragBlock.color, 0.85);
+      W.drawBlockAtScreen(0, 0, doomed ? 'lightRed' : dragBlock.color,
+        doomed ? 0.6 : 0.85);
       ctx.restore();
     }
 

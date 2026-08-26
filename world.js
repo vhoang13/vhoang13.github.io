@@ -960,66 +960,47 @@
       ctx.globalAlpha = opacity * env * (0.05 + pulse * 0.09);
       ctx.fillStyle = '#ffe9a8';
       facePath(...topFace); ctx.fill();
-      // EDGES, not face outlines. Stroking three full quads painted every
-      // shared edge twice, sprouted crossing spurs at the corners (two
-      // rectangles turning different ways under a 2px line), and drew the
+      // EDGES, not face outlines — EVERY visible edge of EVERY warm cube,
+      // seams included, so each cube reads as individually lit. Keeping
+      // it edge-based (rather than stroking three face quads) is what
+      // avoids the original artifacts: quads painted every shared edge
+      // twice, sprouted crossing spurs at the corners, and drew the
       // hidden top-face outline of a stacked block as a band across the
-      // seam. Instead: the cube's 9 visible edges exactly once — and an
-      // edge shared with a NEIGHBOURING warm settled block is skipped, so
-      // an arrangement outlines as ONE glowing shape. That is what the
-      // hint means ("N blocks read as ONE arrangement"); the old drawing
-      // never delivered it. Rule per edge (faces n1, n2, diagonal d):
-      // fully surrounded → skip; both face-neighbours warm (concave
-      // crease) → draw; one face-neighbour warm (flat continuation) →
-      // skip; none (silhouette, incl. diagonal touch) → draw.
-      const now = VH.clock.time;
-      // Neighbour lookups use the block's LOGICAL cell (opts.cell), not
-      // the render coordinates this function was called with — those
-      // carry dip/lift/squash fractions, and the occupancy map is keyed
-      // on integers, so a fractional gz made every lookup miss: both
-      // skip rules went dead, every block stroked all 9 edges, and the
-      // "one glowing shape" promise broke into per-block boxes + seams.
-      const cell = opts.cell;
-      const warmAt = (dx2, dy2, dz2) => {
-        if (!cell) return false;
-        const nb = W.blockAt(cell[0] + dx2, cell[1] + dy2, cell[2] + dz2);
-        return !!nb && !nb.dropping && nb.warmUntil > now;
-      };
+      // seam. Here each cube emits its 9 visible edges exactly once.
+      //
+      // DELIBERATE, DO NOT "FIX" BACK: a neighbour test used to skip
+      // shared edges so an arrangement outlined as ONE shape. It never
+      // actually ran (it queried an integer-keyed map with fractional
+      // render coordinates, so it always missed) — meaning the per-cube
+      // look below is what the game always shipped. When the lookup was
+      // repaired the group outline appeared for the first time and the
+      // designer rejected it on sight, twice. Per-cube is the decision.
       const sxv = xVisible ? 1 : 0, syv = yVisible ? 1 : 0; // viewer-facing sides
       const C = (s, t, h) =>
         P(s * ux.x + t * uy.x + h * uz.x, s * ux.y + t * uy.y + h * uz.y);
-      // The RIM pulses group-wide (no per-cell phase): the whole outline
-      // is one stroke around one shape, and neighbouring blocks breathing
-      // at different alphas re-introduced the seams the edge-merging just
-      // removed. The travelling per-cell pulse stays on the WASH above —
-      // that is what makes the blocks read as one arrangement.
+      // The RIM pulses group-wide (no per-cell phase) so a run of lit
+      // cubes breathes together. The travelling per-cell pulse stays on
+      // the WASH above — that is what ties them into one arrangement.
       const rimPulse = E.reducedMotion ? 0.65 : 0.5 + 0.5 * Math.sin(VH.clock.time * 4.2);
       ctx.globalAlpha = opacity * env * (0.50 + rimPulse * 0.50);
       ctx.strokeStyle = '#ffd968';
       ctx.lineWidth = Math.max(1.5, 2 * E.SCALE);
       ctx.lineCap = 'round';
       ctx.beginPath();
-      const edge = (a, b2, n1, n2) => {
-        const w1 = warmAt(n1[0], n1[1], n1[2]);
-        const w2 = warmAt(n2[0], n2[1], n2[2]);
-        const wd = warmAt(n1[0] + n2[0], n1[1] + n2[1], n1[2] + n2[2]);
-        if (w1 && w2 && wd) return;        // interior — no line at all
-        if ((w1 || w2) && !(w1 && w2)) return; // flat continuation — merge
-        ctx.moveTo(a.x, a.y); ctx.lineTo(b2.x, b2.y);
-      };
+      const edge = (a, b2) => { ctx.moveTo(a.x, a.y); ctx.lineTo(b2.x, b2.y); };
       // 4 top edges (top face + each side)
-      edge(C(0, 0, 1), C(1, 0, 1), [0, 0, 1], [0, -1, 0]);
-      edge(C(1, 0, 1), C(1, 1, 1), [0, 0, 1], [1, 0, 0]);
-      edge(C(1, 1, 1), C(0, 1, 1), [0, 0, 1], [0, 1, 0]);
-      edge(C(0, 1, 1), C(0, 0, 1), [0, 0, 1], [-1, 0, 0]);
+      edge(C(0, 0, 1), C(1, 0, 1));
+      edge(C(1, 0, 1), C(1, 1, 1));
+      edge(C(1, 1, 1), C(0, 1, 1));
+      edge(C(0, 1, 1), C(0, 0, 1));
       // 3 visible verticals (the corner opposite the front one is hidden)
       for (let s = 0; s <= 1; s++) for (let t = 0; t <= 1; t++) {
         if (s === 1 - sxv && t === 1 - syv) continue; // the hidden back corner
-        edge(C(s, t, 0), C(s, t, 1), [2 * s - 1, 0, 0], [0, 2 * t - 1, 0]);
+        edge(C(s, t, 0), C(s, t, 1));
       }
       // 2 visible bottom edges (along the two viewer-facing side faces)
-      edge(C(sxv, 0, 0), C(sxv, 1, 0), [2 * sxv - 1, 0, 0], [0, 0, -1]);
-      edge(C(0, syv, 0), C(1, syv, 0), [0, 2 * syv - 1, 0], [0, 0, -1]);
+      edge(C(sxv, 0, 0), C(sxv, 1, 0));
+      edge(C(0, syv, 0), C(1, syv, 0));
       ctx.stroke();
       ctx.lineCap = 'butt';
     }
@@ -1048,53 +1029,78 @@
     ctx.globalAlpha = 1;
   };
 
-  // Translucent white cube used as the placement preview while dragging
-  W.drawGhostBlock = (gx, gy, gz) => {
+  // Placement preview. The old ghost was three quads of flat #ffffff at
+  // alpha 0.25 with no stroke — over grass that is ~1.3:1 contrast, over
+  // a pale block invisible, and with all faces the same value it read as
+  // a flat hexagon, not a cube. Now: the block's REAL colours at 0.4
+  // (the monument-ghost idiom), a light silhouette, and an emphasised
+  // BASE DIAMOND — the footprint on the surface the cube will sit on,
+  // which is the actual answer to "am I on top of this tower or behind
+  // it?". `mul` scales the whole thing down for the quiet hover preview.
+  W.drawGhostBlock = (gx, gy, gz, colorKey, mul = 1) => {
     const ctx = E.ctx;
     const ref = E.toScreen(gx, gy, gz);
     const { ux, uy, uz, xVisible, yVisible } = E.fv;
     const opp = { x: ref.x + ux.x + uy.x + uz.x, y: ref.y + ux.y + uy.y + uz.y };
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = '#ffffff';
+    const col = W.COLORS[colorKey];
+    const fillA = (col ? 0.4 : 0.25) * mul;
 
-    if (xVisible) {
+    const quad = (a, b, c, d, fill) => {
+      ctx.fillStyle = fill;
       ctx.beginPath();
-      ctx.moveTo(ref.x + ux.x, ref.y + ux.y);
-      ctx.lineTo(ref.x + ux.x + uz.x, ref.y + ux.y + uz.y);
-      ctx.lineTo(opp.x, opp.y);
-      ctx.lineTo(ref.x + ux.x + uy.x, ref.y + ux.y + uy.y);
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y);
       ctx.closePath(); ctx.fill();
-    } else {
-      ctx.beginPath();
-      ctx.moveTo(ref.x, ref.y);
-      ctx.lineTo(ref.x + uz.x, ref.y + uz.y);
-      ctx.lineTo(ref.x + uy.x + uz.x, ref.y + uy.y + uz.y);
-      ctx.lineTo(ref.x + uy.x, ref.y + uy.y);
-      ctx.closePath(); ctx.fill();
-    }
+    };
+    const at = (sx, sy, sz2) => ({
+      x: ref.x + sx * ux.x + sy * uy.x + sz2 * uz.x,
+      y: ref.y + sx * ux.y + sy * uy.y + sz2 * uz.y,
+    });
 
-    if (yVisible) {
-      ctx.beginPath();
-      ctx.moveTo(ref.x + uy.x, ref.y + uy.y);
-      ctx.lineTo(ref.x + uy.x + uz.x, ref.y + uy.y + uz.y);
-      ctx.lineTo(opp.x, opp.y);
-      ctx.lineTo(ref.x + ux.x + uy.x, ref.y + ux.y + uy.y);
-      ctx.closePath(); ctx.fill();
-    } else {
-      ctx.beginPath();
-      ctx.moveTo(ref.x, ref.y);
-      ctx.lineTo(ref.x + uz.x, ref.y + uz.y);
-      ctx.lineTo(ref.x + ux.x + uz.x, ref.y + ux.y + uz.y);
-      ctx.lineTo(ref.x + ux.x, ref.y + ux.y);
-      ctx.closePath(); ctx.fill();
-    }
+    ctx.globalAlpha = fillA;
+    // x side (whichever faces the viewer), y side, top — per-face colours
+    // so the ghost reads as a volume, not a flat wash.
+    const xs = xVisible ? 1 : 0;
+    quad(at(xs, 0, 0), at(xs, 0, 1), at(xs, 1, 1), at(xs, 1, 0),
+      col ? col.right : '#ffffff');
+    const ys = yVisible ? 1 : 0;
+    quad(at(0, ys, 0), at(0, ys, 1), at(1, ys, 1), at(1, ys, 0),
+      col ? col.front : '#ffffff');
+    quad(at(0, 0, 1), at(1, 0, 1), opp, at(0, 1, 1),
+      col ? col.top : '#ffffff');
 
+    // The base diamond: the footprint, stroked strong — the load-bearing
+    // cue. (All four edges: the two "behind" the cube show through the
+    // translucent fills and complete the reticle.)
+    ctx.strokeStyle = '#fff6dc'; // the moonlit-rim warm white
+    ctx.lineWidth = Math.max(1.5, 2 * E.SCALE);
+    ctx.globalAlpha = 0.9 * mul;
     ctx.beginPath();
-    ctx.moveTo(ref.x + uz.x, ref.y + uz.y);
-    ctx.lineTo(ref.x + ux.x + uz.x, ref.y + ux.y + uz.y);
+    ctx.moveTo(ref.x, ref.y);
+    ctx.lineTo(at(1, 0, 0).x, at(1, 0, 0).y);
+    ctx.lineTo(at(1, 1, 0).x, at(1, 1, 0).y);
+    ctx.lineTo(at(0, 1, 0).x, at(0, 1, 0).y);
+    ctx.closePath(); ctx.stroke();
+
+    // Light top outline + visible verticals so the volume has edges
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.4 * mul;
+    ctx.beginPath();
+    ctx.moveTo(at(0, 0, 1).x, at(0, 0, 1).y);
+    ctx.lineTo(at(1, 0, 1).x, at(1, 0, 1).y);
     ctx.lineTo(opp.x, opp.y);
-    ctx.lineTo(ref.x + uy.x + uz.x, ref.y + uy.y + uz.y);
-    ctx.closePath(); ctx.fill();
+    ctx.lineTo(at(0, 1, 1).x, at(0, 1, 1).y);
+    ctx.closePath(); ctx.stroke();
+    ctx.beginPath();
+    const sxv = xVisible ? 1 : 0, syv = yVisible ? 1 : 0;
+    for (let s = 0; s <= 1; s++) {
+      for (let t = 0; t <= 1; t++) {
+        if (s === 1 - sxv && t === 1 - syv) continue; // hidden back corner
+        ctx.moveTo(at(s, t, 0).x, at(s, t, 0).y);
+        ctx.lineTo(at(s, t, 1).x, at(s, t, 1).y);
+      }
+    }
+    ctx.stroke();
 
     ctx.globalAlpha = 1;
   };
