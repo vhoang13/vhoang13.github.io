@@ -191,6 +191,18 @@
   const DRAG_THRESHOLD = 6;             // px — forgiving enough for touch
   const ROT_PER_PX = (Math.PI / 2) / 260; // quarter turn per 260px of drag
 
+  // Any zoom/pan change invalidates screen→grid state captured earlier:
+  // same class of event as a keyboard rotate, same fix (see the arrow-key
+  // handler's `hoverPreview = null` with the same comment). Mid-carry the
+  // target is RE-DERIVED rather than nulled — releaseCarriedBlock's
+  // no-target fall-through can reach the void branch, and a wheel tick
+  // must never be what voids a block.
+  E.onProjectionChange = () => {
+    hoverPreview = null;
+    if (isDragging) updateHoverTarget();
+    else hoverGrid = null;
+  };
+
   // ── Block palette (hotbar) ──────────────────────────────────
   let selectedType = 'color';
   let chosenColor = null; // colour slot: null = random, else a locked colour
@@ -387,7 +399,33 @@
   let dragMonDz = 0;                 // landing lift resolved by monumentMovePlan
   let dragMonValid = false;
 
+  // ── Pinch zoom (touch) ──────────────────────────────────────
+  // The single-pointer discipline below stays load-bearing for every
+  // GAME gesture — but the pinch bookkeeping runs BEFORE it, tracking
+  // all canvas touch points. When a second finger lands, the in-flight
+  // gesture is ABORTED through endPointer's cancelled path (the same
+  // path a real pointercancel takes: every commit is guarded on
+  // !cancelled, a carried block goes home, a monument drag is dropped
+  // without moving). This matters: committing instead would mix grid
+  // coordinates from two different projections, and for a monument
+  // drag that mismatch reads as "thrown off the platform" — pinching
+  // must never be able to destroy a monument.
+  const touchPts = new Map(); // pointerId → canvas pos, canvas touches only
+  let pinch = null;           // { d0, z0 } — start distance and start zoom
+
   canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch') {
+      touchPts.set(e.pointerId, eventPos(e));
+      if (touchPts.size === 2) {
+        if (activePointerId !== null) endPointer({ pointerId: activePointerId }, true);
+        try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* synthetic ids */ }
+        const [a, b] = [...touchPts.values()];
+        pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: E.ZOOM };
+        return;
+      }
+      if (touchPts.size > 2) { try { canvas.setPointerCapture(e.pointerId); } catch (_) {} return; }
+    }
+    if (pinch) return; // no new gestures while a pinch is live
     if (activePointerId !== null) return; // one pointer drives; ignore extra touches
     activePointerId = e.pointerId;
     canvas.setPointerCapture(e.pointerId);
@@ -417,6 +455,16 @@
   });
 
   canvas.addEventListener('pointermove', (e) => {
+    if (touchPts.has(e.pointerId)) {
+      touchPts.set(e.pointerId, eventPos(e));
+      if (pinch && touchPts.size >= 2) {
+        const [a, b] = [...touchPts.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        // zoom about the midpoint of the two fingers
+        E.setZoom(pinch.z0 * (d / pinch.d0), (a.x + b.x) / 2, (a.y + b.y) / 2);
+        return;
+      }
+    }
     const p = eventPos(e);
     pointerScreen.x = p.x;
     pointerScreen.y = p.y;
@@ -651,8 +699,15 @@
     canvas.style.cursor = 'default';
   }
 
-  canvas.addEventListener('pointerup', (e) => endPointer(e, false));
-  canvas.addEventListener('pointercancel', (e) => endPointer(e, true));
+  // A lifted finger leaves the pinch; below two fingers the pinch ends
+  // and the zoom KEEPS its value. The remaining finger owns no gesture
+  // (it never claimed one) — lifting and re-touching starts fresh.
+  function endTouchPoint(e) {
+    if (touchPts.delete(e.pointerId) && pinch && touchPts.size < 2) pinch = null;
+  }
+
+  canvas.addEventListener('pointerup', (e) => { endTouchPoint(e); endPointer(e, false); });
+  canvas.addEventListener('pointercancel', (e) => { endTouchPoint(e); endPointer(e, true); });
   // Safety net for the strict guard above: if the captured pointer dies
   // without a proper up/cancel, end the gesture as a cancel instead of
   // wedging input. (After a normal pointerup this fires too, but by then
@@ -664,6 +719,19 @@
   // (onto a panel or out of the window) — it recomputes on re-entry.
   canvas.addEventListener('pointerleave', () => { hoverPreview = null; });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // ── Wheel zoom (desktop) ────────────────────────────────────
+  // Exponential steps so equal wheel travel feels like equal zoom in
+  // both directions. passive:false + preventDefault so a trackpad
+  // ctrl+wheel pinch zooms the WORLD, not the browser (the page itself
+  // cannot scroll — html/body are overflow:hidden). deltaMode 1 is
+  // line-based deltas (Firefox); the multiplier compensates.
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const p = eventPos(e);
+    const step = e.deltaMode === 1 ? 0.06 : 0.0018;
+    E.setZoom(E.ZOOM * Math.exp(-e.deltaY * step), p.x, p.y);
+  }, { passive: false });
 
   // Keyboard: quarter-turn rotation (reads as "game", helps accessibility)
   window.addEventListener('keydown', (e) => {
@@ -1171,8 +1239,13 @@
   }
 
   function drawPlatform(dip) {
-    // Cache key: anything that changes the platform's pixels
+    // Cache key: anything that changes the platform's pixels. SCALE and
+    // pan are in here because zoom changes NEITHER E.W nor E.H — without
+    // them the island keeps rendering at the old size while every block
+    // rescales, indefinitely (nothing else invalidates at rest), then
+    // silently self-heals on the next rotate. Do not remove.
     const key = [cam.angle.toFixed(5), dip.toFixed(4), E.W, E.H,
+                 E.SCALE.toFixed(4), E.panX.toFixed(1), E.panY.toFixed(1),
                  E.shakeX.toFixed(2), E.shakeY.toFixed(2)].join('|');
     if (key !== platformCacheKey) {
       platformCacheKey = key;
@@ -1639,6 +1712,38 @@
     console.log('[dev-light] gain', E.LIGHT_GAIN, 'blur', E.LIGHT_BLUR,
       'moon', E.MOON_ALT, 'shadow', E.SHADOW_STRENGTH);
   });
+  // Framing picker: the designer chooses the DEFAULT island size on a
+  // real phone (vietnhoang.com/#dev), never from a description. The
+  // divisor is the island's width fraction on a portrait phone (600 =
+  // 73% of the width, 500 = 88%, 460 = 96%); the anchor is where the
+  // island sits vertically. Picking a variant re-runs resize(), which
+  // recomputes BASE_SCALE and reapplies any user zoom on top.
+  document.addEventListener('vh-dev-frame', (e) => {
+    const d = e.detail || {};
+    if (Number.isFinite(+d.div) && +d.div > 100) E.FRAME_DIV = +d.div;
+    if (Number.isFinite(+d.anchor)) E.FRAME_ANCHOR = Math.max(0.2, Math.min(0.8, +d.anchor));
+    E.resize();
+    console.log('[dev-frame]', JSON.stringify({ div: E.FRAME_DIV, anchor: E.FRAME_ANCHOR }));
+  });
+  {
+    const FRAMES = [
+      ['A · today', 600, 0.46],
+      ['B · bigger', 500, 0.46],
+      ['C · biggest', 460, 0.44],
+    ];
+    const bar = document.createElement('div');
+    bar.style.cssText = 'position:fixed;left:50%;top:70px;transform:translateX(-50%);z-index:60;display:flex;gap:8px;';
+    FRAMES.forEach(([label, div, anchor]) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      // 48px targets — this picker's whole job is being usable on a phone
+      b.style.cssText = 'min-width:88px;min-height:48px;padding:6px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.25);background:rgba(10,12,24,0.88);color:#e8e0d6;font:600 13px system-ui;cursor:pointer;';
+      b.addEventListener('click', () =>
+        document.dispatchEvent(new CustomEvent('vh-dev-frame', { detail: { div, anchor } })));
+      bar.appendChild(b);
+    });
+    document.body.appendChild(bar);
+  }
   // Flower density on the Hanging Gardens. Default 1.2 (designer-picked
   // on screen). Only EXACTLY 0 turns them off — the count floor is 1 per
   // piece, so 0.01 still plants one.

@@ -19,6 +19,19 @@
   const E = (VH.engine = {
     canvas, ctx,
     W: 0, H: 0, SCALE: 1,
+    // SCALE = BASE_SCALE * ZOOM, always. BASE_SCALE is the framing
+    // formula (what resize computes); ZOOM is the user's multiplier and
+    // must survive a resize — writing zoom into SCALE directly would be
+    // wiped by the next rotate-your-phone. panX/panY shift the scene
+    // anchor so a zoom can follow the fingers/cursor; both live in
+    // sceneCenter() so every projection and hit-test gets them free.
+    BASE_SCALE: 1, ZOOM: 1, panX: 0, panY: 0,
+    // The framing formula's two knobs (BASE_SCALE = min(W,H)/FRAME_DIV,
+    // anchor y = H*FRAME_ANCHOR). Geometry: the island's screen width is
+    // ~440*SCALE px, so on a portrait phone (min = W) the divisor IS the
+    // width fraction — 600 → 73% of the width, 500 → 88%, 460 → 96%.
+    // Variants are picked on a real phone via the #dev framing picker.
+    FRAME_DIV: 600, FRAME_ANCHOR: 0.46,
     TILE: 20,
     // Scene-wide accessibility switch: no throws, shakes, tumbles, or
     // ambient sway for visitors who prefer reduced motion.
@@ -34,7 +47,9 @@
     canvas.height = E.H * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
-    E.SCALE = Math.min(E.W, E.H) / 600;
+    E.BASE_SCALE = Math.min(E.W, E.H) / E.FRAME_DIV;
+    E.SCALE = E.BASE_SCALE * E.ZOOM;
+    if (E._clampPan) E._clampPan(); // viewport changed → pan bounds changed
     if (E._lightResize) E._lightResize();   // keep the light buffer in step
     if (E._shadowResize) E._shadowResize(); // and the shadow buffer
   }
@@ -354,8 +369,45 @@
   };
 
   // ── Projection ──────────────────────────────────────────────
-  function sceneCenter() { return { x: E.W / 2 + E.shakeX, y: E.H * 0.46 + E.shakeY }; }
+  function sceneCenter() {
+    return { x: E.W / 2 + E.panX + E.shakeX, y: E.H * E.FRAME_ANCHOR + E.panY + E.shakeY };
+  }
   E.sceneCenter = sceneCenter;
+
+  // ── Zoom (user-controlled; pinch on touch, wheel on desktop) ──
+  // Allowed pan GROWS with zoom and is zero at ZOOM ≤ 1: the default
+  // framing centres the island, and zooming back out eases you home
+  // automatically — the island can never be lost off-screen.
+  function clampPan() {
+    const room = Math.max(0, E.ZOOM - 1);
+    const mx = E.W * 0.35 * Math.min(1, room);
+    const my = E.H * 0.30 * Math.min(1, room);
+    E.panX = Math.max(-mx, Math.min(mx, E.panX));
+    E.panY = Math.max(-my, Math.min(my, E.panY));
+  }
+  E._clampPan = clampPan;
+
+  // Set zoom about a screen focal point (fx, fy) — the world point under
+  // the fingers/cursor stays put. ZOOM is clamped both directly and so
+  // the resulting SCALE stays inside ~0.5–3.2, the band the line-width
+  // floors and blur radii were tuned around.
+  E.setZoom = (z, fx, fy) => {
+    const lo = Math.max(0.6, 0.5 / E.BASE_SCALE);
+    const hi = Math.min(2.4, 3.2 / E.BASE_SCALE);
+    const next = Math.max(lo, Math.min(hi, z));
+    if (next === E.ZOOM) { clampPan(); return; }
+    const k = next / E.ZOOM;
+    if (fx != null && fy != null) {
+      // keep the world point under (fx, fy) fixed through the change
+      E.panX = (1 - k) * (fx - E.W / 2) + k * E.panX;
+      E.panY = (1 - k) * (fy - E.H * E.FRAME_ANCHOR) + k * E.panY;
+    }
+    E.ZOOM = next;
+    E.SCALE = E.BASE_SCALE * E.ZOOM;
+    clampPan();
+    if (E.onProjectionChange) E.onProjectionChange(); // game.js: stale hover
+  };
+  E.resetZoom = () => { E.ZOOM = 1; E.panX = 0; E.panY = 0; E.SCALE = E.BASE_SCALE; if (E.onProjectionChange) E.onProjectionChange(); };
 
   // Grid → Screen. Rotate grid coords, then standard isometric projection.
   E.toScreen = (gx, gy, gz) => {
@@ -411,8 +463,13 @@
   };
 
   E.updateLightInfo = () => {
-    const t = E.TILE * E.SCALE;
-    const c = sceneCenter();
+    // BASE scale and the UN-panned centre on purpose: the moon is a
+    // fixed screen fraction, so unprojecting it through the zoomed,
+    // panned view would SHORTEN every shadow as you zoom in and swing
+    // the light across the island as you pan. Lighting is a property
+    // of the world, not of the viewport.
+    const t = E.TILE * E.BASE_SCALE;
+    const c = { x: E.W / 2 + E.shakeX, y: E.H * E.FRAME_ANCHOR + E.shakeY };
     const mx = E.MOON.fx * E.W, my = E.MOON.fy * E.H;
     // Moon direction from scene center → continuous grid coords
     const relX = mx - c.x;
