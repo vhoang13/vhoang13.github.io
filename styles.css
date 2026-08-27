@@ -68,6 +68,64 @@ body {
   transform: none;
 }
 
+/* Tucked: the intro folds away while the visitor is zoomed in (or hid
+   it by hand) — opacity + transform only, so the fold never causes
+   layout work. Declared after .show so it wins when both apply. */
+.panel.show.tucked {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.98);
+  pointer-events: none;
+}
+
+.panel-tuck {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-dim);
+  font: 600 14px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.panel-tuck:hover { background: rgba(255, 255, 255, 0.08); }
+
+/* The pill the panel folds into — same corner, thumb-sized */
+.panel-pill {
+  position: fixed;
+  top: 1.5rem;
+  left: 1.5rem;
+  z-index: 10;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(26, 26, 46, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: var(--color-accent);
+  font-family: var(--font-pixel);
+  font-size: 0.55rem;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-10px);
+  pointer-events: none;
+  transition: opacity 0.35s cubic-bezier(0.25, 1, 0.5, 1),
+              transform 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.panel-pill.show {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+/* A pinch that starts on the overlays must not zoom the PAGE (iOS
+   Safari); manipulation keeps taps working and kills double-tap zoom */
+.panel, .controls, .panel-pill { touch-action: manipulation; }
+
 .panel-header {
   margin-bottom: 0.75rem;
 }

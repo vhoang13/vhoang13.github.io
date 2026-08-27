@@ -31,7 +31,9 @@
     // ~440*SCALE px, so on a portrait phone (min = W) the divisor IS the
     // width fraction — 600 → 73% of the width, 500 → 88%, 460 → 96%.
     // Variants are picked on a real phone via the #dev framing picker.
-    FRAME_DIV: 600, FRAME_ANCHOR: 0.46,
+    // 500 = variant B, designer-picked on their phone 2026-08-27 (~88%
+    // of a portrait phone's width; was 600 / 73% at launch).
+    FRAME_DIV: 500, FRAME_ANCHOR: 0.46,
     TILE: 20,
     // Scene-wide accessibility switch: no throws, shakes, tumbles, or
     // ambient sway for visitors who prefer reduced motion.
@@ -408,6 +410,16 @@
     if (E.onProjectionChange) E.onProjectionChange(); // game.js: stale hover
   };
   E.resetZoom = () => { E.ZOOM = 1; E.panX = 0; E.panY = 0; E.SCALE = E.BASE_SCALE; if (E.onProjectionChange) E.onProjectionChange(); };
+
+  // Shift the view (two-finger pan rides this). Same clamp as zoom: pan
+  // room is zero at ZOOM ≤ 1, so panning only works once zoomed in and
+  // the island can never be pushed off-screen.
+  E.panBy = (dx, dy) => {
+    E.panX += dx;
+    E.panY += dy;
+    clampPan();
+    if (E.onProjectionChange) E.onProjectionChange();
+  };
 
   // Grid → Screen. Rotate grid coords, then standard isometric projection.
   E.toScreen = (gx, gy, gz) => {

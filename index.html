@@ -16,6 +16,7 @@
 
   <!-- Info panel — top-left, out of the way -->
   <div class="panel" id="panel">
+    <button class="panel-tuck" id="panelTuck" aria-label="Hide intro">&ndash;</button>
     <div class="panel-header">
       <div class="badge">
         <span class="badge-dot"></span>
@@ -33,6 +34,9 @@
       <a href="https://linkedin.com/in/vietnhoang" target="_blank" rel="noopener" class="link-btn link-btn--ghost">LinkedIn</a>
     </div>
   </div>
+  <!-- The tucked-panel pill: appears when the intro folds away (zoomed
+       in, or hidden by hand); tapping brings the intro back -->
+  <button class="panel-pill" id="panelPill" aria-label="Show intro" aria-expanded="false">VH</button>
 
   <!-- Controls — top-right -->
   <div class="controls" id="controls">

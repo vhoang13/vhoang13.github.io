@@ -420,7 +420,14 @@
         if (activePointerId !== null) endPointer({ pointerId: activePointerId }, true);
         try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* synthetic ids */ }
         const [a, b] = [...touchPts.values()];
-        pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: E.ZOOM };
+        pinch = {
+          d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: E.ZOOM,
+          // midpoint drives the two-finger PAN: designer feedback — one
+          // finger already means rotate, so moving around while zoomed
+          // needs the second finger. Standard map-app behaviour: spread
+          // to zoom, move both to pan, freely combined.
+          mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2,
+        };
         return;
       }
       if (touchPts.size > 2) { try { canvas.setPointerCapture(e.pointerId); } catch (_) {} return; }
@@ -460,8 +467,12 @@
       if (pinch && touchPts.size >= 2) {
         const [a, b] = [...touchPts.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-        // zoom about the midpoint of the two fingers
-        E.setZoom(pinch.z0 * (d / pinch.d0), (a.x + b.x) / 2, (a.y + b.y) / 2);
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        // zoom about the midpoint, then pan by the midpoint's travel —
+        // spread-to-zoom and move-to-pan compose into one gesture
+        E.setZoom(pinch.z0 * (d / pinch.d0), mx, my);
+        E.panBy(mx - pinch.mx, my - pinch.my);
+        pinch.mx = mx; pinch.my = my;
         return;
       }
     }
@@ -719,6 +730,45 @@
   // (onto a panel or out of the window) — it recomputes on re-entry.
   canvas.addEventListener('pointerleave', () => { hoverPreview = null; });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // ── Intro panel tuck ────────────────────────────────────────
+  // Zooming in is a clear "I'm exploring now" signal, and on a phone
+  // the intro panel covers the very corner you zoomed toward — so it
+  // folds into a pill while ZOOM is high and comes back when the view
+  // returns home. Manual overrides (the – button, tapping the pill)
+  // win until the zoom crosses back to base, then the automatics reset.
+  {
+    const panelEl = document.getElementById('panel');
+    const pillEl = document.getElementById('panelPill');
+    let userTucked = false;
+    let userOpened = false;
+    let wasZoomed = false;
+    const syncPanelTuck = () => {
+      // overrides reset only on the TRANSITION back to base zoom — a
+      // steady-state check here would instantly undo a manual tuck
+      const zoomedNow = E.ZOOM > 1.05;
+      if (wasZoomed && !zoomedNow) { userOpened = false; userTucked = false; }
+      wasZoomed = zoomedNow;
+      const tucked = userTucked || (E.ZOOM > 1.15 && !userOpened);
+      panelEl.classList.toggle('tucked', tucked);
+      pillEl.classList.toggle('show', tucked);
+      pillEl.setAttribute('aria-expanded', String(!tucked));
+    };
+    document.getElementById('panelTuck').addEventListener('click', () => {
+      userTucked = true; userOpened = false; syncPanelTuck();
+    });
+    pillEl.addEventListener('click', () => {
+      // "keep it open" only means something while zoomed — at rest the
+      // pill tap is just undoing a manual tuck, and must not suppress
+      // the NEXT zoom's auto-tuck
+      userOpened = E.ZOOM > 1.15;
+      userTucked = false;
+      syncPanelTuck();
+    });
+    // ride the existing projection-change hook so every zoom/pan syncs
+    const prevOPC = E.onProjectionChange;
+    E.onProjectionChange = () => { prevOPC(); syncPanelTuck(); };
+  }
 
   // ── Wheel zoom (desktop) ────────────────────────────────────
   // Exponential steps so equal wheel travel feels like equal zoom in
@@ -1727,8 +1777,8 @@
   });
   {
     const FRAMES = [
-      ['A · today', 600, 0.46],
-      ['B · bigger', 500, 0.46],
+      ['A · small (old)', 600, 0.46],
+      ['B · default', 500, 0.46],   // ← the designer's pick, 2026-08-27
       ['C · biggest', 460, 0.44],
     ];
     const bar = document.createElement('div');
