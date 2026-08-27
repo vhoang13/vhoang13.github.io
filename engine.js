@@ -341,6 +341,18 @@
   E.shakeY = 0;
   E.kickShake = (mag) => { E.shake = Math.max(E.shake, mag); };
 
+  // Deterministic seeded RNG (tiny LCG): same integer inputs, same
+  // sequence, every call — the anti-crawl guarantee behind the platform
+  // grain (game.js) and the material texture pass (world.js). Never feed
+  // it render coordinates; hash LOGICAL cells only.
+  E.hashRand = (a, b, c) => {
+    let s = (((a | 0) * 73856093) ^ ((b | 0) * 19349663) ^ ((c | 0) * 83492791)) >>> 0;
+    return () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 4294967296;
+    };
+  };
+
   // ── Projection ──────────────────────────────────────────────
   function sceneCenter() { return { x: E.W / 2 + E.shakeX, y: E.H * 0.46 + E.shakeY }; }
   E.sceneCenter = sceneCenter;

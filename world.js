@@ -813,6 +813,330 @@
     }
   }
 
+  // ── Material texture (2026-08, session 9+) ──────────────────
+  // The palette is material-NAMED (sarsenGrey, brickGrey, ironBronze…),
+  // so texture needs no new data on any monument: family is looked up
+  // from the colour key, the way the colour already is. Only pieces that
+  // pass opts.tex (the logical piece object, monuments only) are ever
+  // textured — ghosts, floaters and player blocks opt out by omission.
+  // glass / gold / lamp stay clean ON PURPOSE: glass reads as glass
+  // because everything around it has tooth, and gold belongs to the
+  // shimmer rim.
+  //
+  // Approval state: stone, brick and metal are designer-approved.
+  // Marble, wood and sand were never rebuilt on the value rule (see the
+  // MATERIAL PRINCIPLE block in HANDOFF.md) — if any of them ever reads
+  // cheap, rebuild it on light behaviour, don't nudge its alpha.
+  const MATERIALS = {
+    sarsenGrey: 'stone', stone: 'stone', stoneDark: 'stone',
+    travertine: 'stone', travertineDark: 'stone', graniteRose: 'stone',
+    brickGrey: 'brick', brickDark: 'brick',
+    // lightWhite is BOTH temple marble and lighthouse whitewash; the
+    // marble area gate (veins only on faces ≥0.8 cells²) means the
+    // lighthouse's small courses stay clean automatically. Same story
+    // for lightRed (doghouse roof timber vs lighthouse masonry bands):
+    // the wood long-axis gate (≥1.2 cells) lets the roof through and
+    // leaves the bands alone.
+    marble: 'marble', marbleShadow: 'marble', lightWhite: 'marble',
+    vermilion: 'wood', kasagiBlack: 'wood', orange: 'wood', lightRed: 'wood',
+    // Metal = plate seams, and ORDER is the tell (machined, not natural):
+    // evenly spaced, never hashed. The seam spacing needs ~1.35 cells of
+    // run, which excludes every Eiffel piece automatically — measured:
+    // its largest piece is 1.2 cells, so rivet-scale marks would be
+    // sub-pixel there (the famously riveted tower is the worst target).
+    copper: 'metal', ironBronze: 'metal', paleIronBlue: 'metal',
+    trimYellow: 'metal', girderRed: 'metal',
+    sand: 'sand',
+  };
+  // Per-family designer knob (vh-dev-material {family, amount}; 0 = off)
+  W.MAT = { stone: 1, brick: 1, marble: 1, wood: 1, metal: 1, sand: 1 };
+  // dark/light mark alphas per family (× amount × piece opacity)
+  const MAT_STYLE = {
+    stone: { dark: 0.085, light: 0.065 },
+    brick: { dark: 0.15, light: 0 },
+    marble: { dark: 0.13, light: 0.1 }, // light = the echo edge under the vein
+    wood: { dark: 0.09, light: 0 },
+    // Metal runs HOT on purpose — high contrast between the bright and
+    // dark bands is the defining property, not a strength setting
+    metal: { dark: 0.20, light: 0.30 },
+    // (stone stays deliberately LOW contrast — matte is its tell)
+    sand: { dark: 0.07, light: 0.05 },
+  };
+
+  // One mark: a parallelogram in face space. o = face origin (screen),
+  // A/B = the face's screen basis vectors, u/v/du/dv in face fractions.
+  // Quads, not strokes — strokes are the expensive canvas op (see the
+  // stroked gate below), and quads batch into one fill per tone.
+  function texMark(ctx, o, A, B, u, v, du, dv) {
+    const px = o.x + A.x * u + B.x * v, py = o.y + A.y * u + B.y * v;
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + A.x * du, py + A.y * du);
+    ctx.lineTo(px + A.x * du + B.x * dv, py + A.y * du + B.y * dv);
+    ctx.lineTo(px + B.x * dv, py + B.y * dv);
+    ctx.closePath();
+  }
+
+  // A diagonal segment: thin sheared quad from (u0,v0) to (u1,v1) with
+  // thickness tv along B — the primitive behind marble veins and wavy
+  // wood grain, which axis-aligned marks can't draw.
+  function texSeg(ctx, o, A, B, u0, v0, u1, v1, tv) {
+    const ax = o.x + A.x * u0 + B.x * v0, ay = o.y + A.y * u0 + B.y * v0;
+    const bx = o.x + A.x * u1 + B.x * v1, by = o.y + A.y * u1 + B.y * v1;
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.lineTo(bx + B.x * tv, by + B.y * tv);
+    ctx.lineTo(ax + B.x * tv, ay + B.y * tv);
+    ctx.closePath();
+  }
+
+  // Emit one face's marks into the CURRENT path, keeping only the tone
+  // matching `pass` (0 = dark, 1 = light) — the two passes re-run the
+  // same deterministic sequence, same idiom as the platform grain.
+  // la/lb are the face's LOGICAL extents in cells (never the pop-scaled
+  // drawn size — counts derived from drawn size re-tile every frame of
+  // a discovery ceremony). id 2 = the top face.
+  // Quarried stone (rough) vs cut stone (ashlar courses). The model
+  // comments already draw this line — sarsen is "quarried, not
+  // machined", the pyramid is "stepped limestone courses" — so the
+  // texture follows the research rather than inventing a rule.
+  const ROUGH_STONE = { sarsenGrey: 1 };
+
+  function texFace(ctx, fam, rnd, o, A, B, la, lb, id, pass, lit, rough) {
+    if (fam === 'stone') {
+      // STONE IS CLUSTERED VALUE, NOT SCATTERED DOTS.
+      //
+      // The first version used the grass speckle with different numbers
+      // and — inevitably — looked like grass. Scattered isolated marks
+      // are a correct model of grass (many small separate things) and a
+      // wrong model of stone. Do not reintroduce per-mark scatter here.
+      //
+      // What reads as stone: irregular BLOTCHES of slightly different
+      // value (a few overlapping lobes each, so the clump has a ragged
+      // outline rather than being a dot), weathered course lines on cut
+      // stone, and chipped corners on quarried stone. Matte and low
+      // contrast throughout — the opposite of metal's hard specular
+      // step. Blotches run FIRST so both tone passes consume the same
+      // rnd sequence; the pass-0-only work below may safely diverge.
+      const nB = Math.max(2, Math.min(7, Math.round(la * lb * 2.4)));
+      for (let i = 0; i < nB; i++) {
+        const cu = 0.08 + rnd() * 0.8;
+        const cv = 0.08 + rnd() * 0.8;
+        const base = 0.10 + rnd() * 0.11; // blotch width in CELLS
+        const want = i % 3 === 0 ? 1 : 0;  // ~1/3 catch the light
+        // Lobes must OVERLAP. Spread them wider and the clump reads as
+        // three separate rectangles — stickers, not stone. Tight
+        // offsets fuse them into one patch with a ragged outline.
+        for (let l = 0; l < 4; l++) {
+          const ou = (rnd() - 0.5) * base * 0.55;
+          const ov = (rnd() - 0.5) * base * 0.55;
+          const s = base * (0.5 + rnd() * 0.5);
+          if (want !== pass) continue;
+          // Clamp the EXTENT too, not just the origin: on a thin plate
+          // (the pyramid's 0.06-wide entrance notch) s can exceed the
+          // face width, and an unclamped du/dv smears the blotch off
+          // the piece — marks are never clipped to the face.
+          const du = Math.min(s / la, 0.98), dv2 = Math.min(s / lb, 0.98);
+          texMark(ctx, o, A, B,
+            Math.max(0.01, Math.min(0.99 - du, cu + ou / la)),
+            Math.max(0.01, Math.min(0.99 - dv2, cv + ov / lb)),
+            du, dv2);
+        }
+      }
+      if (pass !== 0) return;
+      if (rough) {
+        // Quarried, not machined (the Stonehenge sarsen note): no
+        // courses — instead the corners get bitten out, which is the
+        // silhouette tell that separates a weathered block from a box
+        for (let c = 0; c < 4; c++) {
+          const s = 0.07 + rnd() * 0.08;
+          const skip = rnd() > 0.6;
+          if (skip) continue;
+          texMark(ctx, o, A, B,
+            (c & 1) ? 1 - s / la : 0, (c & 2) ? 1 - s / lb : 0,
+            s / la, s / lb);
+        }
+      } else if (id !== 2 && lb >= 0.5) {
+        // Cut stone: cleavage courses. Unlike brick these carry NO
+        // vertical joints and the spacing wanders — that irregularity
+        // is the whole difference between ashlar and brickwork.
+        const courses = Math.max(1, Math.round(lb / 0.45));
+        for (let i = 1; i < courses; i++) {
+          const v = i / courses + (rnd() - 0.5) * 0.05;
+          texMark(ctx, o, A, B, 0, v, 1, 0.016 / lb);
+        }
+      }
+    } else if (fam === 'brick') {
+      if (pass !== 0) return; // mortar is dark only
+      // Running bond on side faces, paver grid on tops. Counts derive
+      // per-axis, so a thin band yields zero rows and stays clean —
+      // the shape-aware gate the copper-band case needs.
+      const rowStep = id === 2 ? 0.5 : 0.32;
+      const rows = Math.round(lb / rowStep);
+      const cols = Math.round(la / 0.55);
+      const th = 0.03; // joint thickness in cells
+      if (rows >= 2) {
+        for (let i = 1; i < rows; i++) {
+          texMark(ctx, o, A, B, 0, i / rows - th / lb / 2, 1, th / lb);
+        }
+      }
+      if (cols >= 2 && rows >= 1) {
+        for (let i = 0; i < rows; i++) {
+          const off = id === 2 ? 0 : (i % 2) * 0.5; // bond offset
+          for (let j = 1; j <= cols; j++) {
+            const u = (j - off) / cols;
+            if (u <= 0.02 || u >= 0.98) continue;
+            texMark(ctx, o, A, B, u - th / la / 2, i / rows, th / la, 1 / rows);
+          }
+        }
+      }
+    } else if (fam === 'marble') {
+      const area = la * lb;
+      if (area < 0.8) return; // trim and small courses stay clean
+      // A smooth diagonal MEANDER (per-step curvature, not zigzag — the
+      // zigzag read as scratches, designer 2026-08-26), with a light
+      // echo edge under the dark vein: the two-tone pair is what makes
+      // it read as depth in the stone rather than dirt on it. Both
+      // passes consume the identical rnd sequence, so the echo hugs
+      // the vein exactly.
+      const nVeins = area >= 2.5 ? 2 : 1;
+      const tv = 0.02 / lb; // vein thickness in cells → face fraction
+      for (let n = 0; n < nVeins; n++) {
+        let u = 0.04 + rnd() * 0.2;
+        let v = 0.1 + rnd() * 0.7;
+        let dv = (rnd() < 0.5 ? -1 : 1) * (0.05 + rnd() * 0.1);
+        for (let sIdx = 0; sIdx < 6; sIdx++) {
+          // CLAMP, and clamp before drawing: nothing clips these marks
+          // to the face, so an unbounded step paints the vein (and its
+          // echo) off the piece and onto whatever is behind it. The
+          // meander rework dropped this and it shipped as a dark stub
+          // hanging off the Arc's top face. Both passes must clamp
+          // identically or the echo desyncs from the vein.
+          const u2 = Math.min(0.96, u + 0.13 + rnd() * 0.06);
+          dv += (rnd() - 0.5) * 0.1; // curvature, not a new direction
+          const v2 = Math.max(0.04, Math.min(0.92, v + dv));
+          if (pass === 0) texSeg(ctx, o, A, B, u, v, u2, v2, tv);
+          else texSeg(ctx, o, A, B, u, v + tv * 1.6, u2, v2 + tv * 1.6, tv);
+          u = u2; v = v2;
+          if (u >= 0.94) break;
+        }
+      }
+    } else if (fam === 'wood') {
+      if (pass !== 0) return; // grain is dark only
+      // Grain runs along the LONG axis; short pieces stay clean (the
+      // gate that keeps lighthouse masonry bands out of the family)
+      const along = la >= lb;
+      const ll = along ? la : lb, ls = along ? lb : la; // long/short extents
+      if (ll < 1.2) return;
+      const n = Math.max(1, Math.min(4, Math.round(ls / 0.3)));
+      const tj = 0.02 / ls; // line thickness (across the short axis)
+      for (let i = 0; i < n; i++) {
+        const v = (i + 0.5) / n + (rnd() - 0.5) * 0.5 / n;
+        const jog = (rnd() - 0.5) * 0.12; // mid-line waver
+        if (along) {
+          texSeg(ctx, o, A, B, 0.03, v, 0.5, v + jog, tj);
+          texSeg(ctx, o, A, B, 0.5, v + jog, 0.97, v, tj);
+        } else {
+          // long axis is B: swap the roles so the line runs along B
+          texSeg(ctx, o, B, A, 0.03, v, 0.5, v + jog, tj);
+          texSeg(ctx, o, B, A, 0.5, v + jog, 0.97, v, tj);
+        }
+      }
+    } else if (fam === 'metal') {
+      // METAL IS A VALUE STRUCTURE, NOT A MARK. What separates metal
+      // from stone is how it handles light: a narrow HIGH-CONTRAST
+      // specular band, a dark core immediately under it, and a bright
+      // bounce along the foot — hard steps, never a fade. The step
+      // between bright and dark is the whole tell; you can render
+      // convincing steel with no surface texture at all.
+      //
+      // The first version drew one evenly-spaced seam line per plate.
+      // A seam is JOINERY, not material — it says "this was assembled",
+      // not "this is metal". Designer rejected it on sight, correctly.
+      // Do not reintroduce seams as the primary metal treatment.
+      //
+      // Consequence of the rework: banding is proportional, so it needs
+      // no run-length — the Eiffel (largest piece 1.2 cells), excluded
+      // from seams by measurement, is back IN for banding.
+      if (id === 2) {
+        // Top face: broad sweep toward the light, dark far half. `lit`
+        // here is the SIGNED y-axis light (the top face's B axis is uy),
+        // so the sweep flips to the moon-facing edge instead of being
+        // glued to a world axis — pinned, it inverted against the
+        // moon every half-turn of the camera.
+        const far = lit < 0;
+        if (pass === 1) texMark(ctx, o, A, B, 0, far ? 0.70 : 0, 1, 0.30);
+        else texMark(ctx, o, A, B, 0, far ? 0 : 0.66, 1, 0.34);
+        return;
+      }
+      // Side faces (B is the vertical axis here): the specular sits
+      // high on a moonlit face and collapses toward a rim on a face
+      // turned away, which is what keeps a box reading as one object.
+      const litF = Math.max(0, Math.min(1, lit));
+      const spec = 0.60 + litF * 0.08;
+      // A band needs vertical RUN. On a shallow face (girders, trim
+      // bands) the full stack collapses into 1px stripes and reads as
+      // corduroy — the same cheap-lines failure the seams had. Below
+      // half a cell, emit the highlight alone: one bright band on a
+      // thin edge is a lit edge, which is honest.
+      if (lb < 0.5) {
+        // Highlight over one dark band — two values, not the four-band
+        // stack, which collapses into 1px corduroy at this height
+        if (pass === 1) texMark(ctx, o, A, B, 0, 0.46, 1, 0.34);
+        else texMark(ctx, o, A, B, 0, 0, 1, 0.30);
+        return;
+      }
+      if (pass === 1) {
+        texMark(ctx, o, A, B, 0, spec, 1, 0.10 + litF * 0.07); // specular
+        texMark(ctx, o, A, B, 0, 0, 1, 0.06); // ground bounce at the foot
+      } else {
+        texMark(ctx, o, A, B, 0, spec - 0.24, 1, 0.24); // core, under the highlight
+        texMark(ctx, o, A, B, 0, 0.88, 1, 0.12); // shaded top lip
+      }
+    } else if (fam === 'sand') {
+      // Fine even tooth: denser, smaller, fainter than stone
+      const n = Math.max(3, Math.min(20, Math.round(la * lb * 14)));
+      for (let i = 0; i < n; i++) {
+        const kc = 0.03 + rnd() * 0.035;
+        const du = Math.min(kc / la, 0.98), dv = Math.min(kc / lb, 0.98);
+        const u = rnd() * Math.max(0.001, 1 - du);
+        const v = rnd() * Math.max(0.001, 1 - dv);
+        if (i % 2 !== pass) continue;
+        texMark(ctx, o, A, B, u, v, du, dv);
+      }
+    }
+  }
+
+  // The whole pass for one piece: three visible faces, two tone fills.
+  // Seeds hash the piece's logical HOME cell (tp.gx/gy/gz — fractional
+  // but stable) plus a per-face term, so opposite-axis faces of one
+  // pier never share a pattern. Never seeded on dip, shake, pop or
+  // screen position — the fractional-render-coordinate class of bug.
+  function drawMaterialTexture(ctx, fam, amt, opacity, tp, ref, ux, uy, uz, xVisible, yVisible, lsx, lsy, lsz, li, rough) {
+    const st = MAT_STYLE[fam];
+    const hx = Math.round(tp.gx * 16), hy = Math.round(tp.gy * 16), hz = Math.round(tp.gz * 16);
+    // Per-face light factors — metal needs them to place its specular;
+    // the other families ignore the argument.
+    const xLit = xVisible ? li.pxLight : li.nxLight;
+    const yLit = yVisible ? li.pyLight : li.nyLight;
+    for (let pass = 0; pass < 2; pass++) {
+      const a = pass === 0 ? st.dark : st.light;
+      if (a <= 0) continue;
+      ctx.beginPath();
+      const xo = xVisible ? { x: ref.x + ux.x, y: ref.y + ux.y } : ref;
+      texFace(ctx, fam, E.hashRand(hx + 1, hy, hz), xo, uy, uz, lsy, lsz, 0, pass, xLit, rough);
+      const yo = yVisible ? { x: ref.x + uy.x, y: ref.y + uy.y } : ref;
+      texFace(ctx, fam, E.hashRand(hx, hy + 3, hz), yo, ux, uz, lsx, lsz, 1, pass, yLit, rough);
+      const to = { x: ref.x + uz.x, y: ref.y + uz.y };
+      // Top face gets the SIGNED y-axis light, not topLight: metal's
+      // sweep needs to know which EDGE the moon is on, and topLight
+      // (a scalar "how lit is up") cannot say.
+      texFace(ctx, fam, E.hashRand(hx, hy, hz + 5), to, ux, uy, lsx, lsy, 2, pass, yLit, rough);
+      ctx.globalAlpha = opacity * amt * a;
+      ctx.fillStyle = pass === 0 ? '#000000' : '#ffffff';
+      ctx.fill();
+    }
+  }
+
   // Smallest largest-dimension that still earns outlines + moonlit rim
   const STROKE_MIN = 0.35;
 
@@ -825,6 +1149,9 @@
   //       contact  darken the base of side faces (resting on something)
   //       gridTop  subtle tile-grid stroke on the top face (platform)
   //       warmT    seconds of near-miss shimmer remaining (0/undefined = off)
+  //       tex      the LOGICAL monument piece (material texture; monuments
+  //                only — its gx/gy/gz seed the marks, its sxy/sy/sz set
+  //                the counts, so the ceremony pop can't re-tile them)
   W.drawBlock = (gx, gy, gz, colorKey, opacity, opts = {}) => {
     if (opacity <= 0) return;
     const col = W.COLORS[colorKey];
@@ -947,6 +1274,23 @@
       outline();
     }
 
+    // Material texture — monuments only (opts.tex is the logical piece;
+    // ghosts/floaters/blocks never pass it, so they opt out by omission).
+    // Gated on the LOGICAL size so the gate can't flicker mid-ceremony,
+    // and drawn under the warm shimmer + moonlit rim, which are light.
+    const tp = opts.tex;
+    if (tp && styled) {
+      const fam = MATERIALS[colorKey];
+      if (fam) {
+        const amt = W.MAT[fam];
+        const lsy = tp.sy != null ? tp.sy : tp.sxy;
+        if (amt > 0 && Math.max(tp.sxy, lsy, tp.sz) >= STROKE_MIN) {
+          drawMaterialTexture(ctx, fam, amt, opacity, tp, ref, ux, uy, uz,
+            xVisible, yVisible, tp.sxy, lsy, tp.sz, li, !!ROUGH_STONE[colorKey]);
+        }
+      }
+    }
+
     // Warmer/colder shimmer: this block is part of a nearly-complete recipe.
     // This is now the game's WHOLE hint (the dog retired from the job), so:
     // a travelling pulse (phase offset by cell) makes N blocks read as ONE
@@ -1026,6 +1370,81 @@
       ctx.stroke();
     }
 
+    ctx.globalAlpha = 1;
+  };
+
+  // ── Flowers (the Hanging Gardens) ───────────────────────────
+  // Pixel-art flower sprites are flat, front-facing and RADIAL: a ring
+  // of petals around a contrasting centre. At the ~10px a flower head
+  // occupies here that ring is the entire read, so the head is
+  // BILLBOARDED — built in screen space, always facing the viewer —
+  // rather than modelled from boxes, which would read as a green lump
+  // from most camera angles and vanish edge-on from some.
+  //
+  // Palette lifted from the reference sheet and pulled down a little:
+  // full sprite-sheet saturation fights a moonlit scene.
+  const FLOWERS = [
+    ['#e87ba8', '#ffd96b'], // pink
+    ['#e2553f', '#ffd96b'], // red
+    ['#6f9fe0', '#ffb14a'], // cornflower
+    ['#ef9440', '#ffe08a'], // orange
+    ['#a878d8', '#ffd96b'], // violet
+    ['#f0d152', '#ef9440'], // yellow
+    ['#f0ece2', '#f0d152'], // white
+  ];
+  W.FLOWERS_ON = 1.2; // designer-picked on screen (vh-dev-flowers); 0 = off
+
+  // tp = the LOGICAL piece: seeds the planting and fixes the COUNT, so
+  // the ceremony pop grows the flowers with the terrace instead of
+  // spawning new ones every frame. Same contract as opts.tex.
+  W.drawFlowers = (gx, gy, gz, sxy, sy, sz, tp, opacity) => {
+    if (!(W.FLOWERS_ON > 0) || opacity <= 0) return;
+    const ctx = E.ctx;
+    const lsy = tp.sy != null ? tp.sy : tp.sxy;
+    const n = Math.max(1, Math.min(7, Math.round(tp.sxy * lsy * 9 * W.FLOWERS_ON)));
+    const rnd = E.hashRand(Math.round(tp.gx * 16) + 7,
+      Math.round(tp.gy * 16) + 11, Math.round(tp.gz * 16) + 13);
+    const top = gz + sz;
+    // Ratio of DRAWN to LOGICAL size — 1 at rest, and the ceremony's
+    // backOut(pop) while a terrace is rising. Heads and stems are sized
+    // in pixels/grid-units, so without this they pop in at full size
+    // above a terrace that is still a dot: flowers first, garden after.
+    const k = tp.sxy > 0 ? Math.min(1, sxy / tp.sxy) : 1;
+    const r = Math.max(1.5, 2.5 * E.SCALE) * k; // petal-ring radius, px
+    const pw = r * 1.06;                        // petal square, px
+    for (let i = 0; i < n; i++) {
+      const u = 0.14 + rnd() * 0.72;
+      const v = 0.14 + rnd() * 0.72;
+      const h = (0.09 + rnd() * 0.09) * k;     // stem height, grid units
+      const f = FLOWERS[Math.floor(rnd() * FLOWERS.length)];
+      const phase = rnd() * Math.PI * 2;
+      const bx = gx + (1 - sxy) / 2 + u * sxy;
+      const by = gy + (1 - sy) / 2 + v * sy;
+      const sway = E.reducedMotion ? 0 : Math.sin(VH.clock.time * 1.5 + phase) * 0.03;
+      const base = E.toScreen(bx, by, top);
+      const tip = E.toScreen(bx + sway, by + sway * 0.6, top + h);
+      ctx.globalAlpha = opacity * 0.9;
+      ctx.strokeStyle = '#4f9455';
+      ctx.lineWidth = Math.max(1, 1.1 * E.SCALE);
+      ctx.beginPath();
+      ctx.moveTo(base.x, base.y);
+      ctx.quadraticCurveTo(base.x, (base.y + tip.y) / 2, tip.x, tip.y);
+      ctx.stroke();
+      // Five petals in a ring, then the centre. The ring is squashed
+      // vertically so the head sits in the isometric scene instead of
+      // reading as a sticker pasted flat on the screen.
+      ctx.globalAlpha = opacity;
+      ctx.fillStyle = f[0];
+      ctx.beginPath();
+      for (let p = 0; p < 5; p++) {
+        const a = phase + p * (Math.PI * 2 / 5);
+        ctx.rect(tip.x + Math.cos(a) * r - pw / 2,
+          tip.y + Math.sin(a) * r * 0.8 - pw / 2, pw, pw);
+      }
+      ctx.fill();
+      ctx.fillStyle = f[1];
+      ctx.fillRect(tip.x - pw * 0.52, tip.y - pw * 0.52, pw * 1.04, pw * 1.04);
+    }
     ctx.globalAlpha = 1;
   };
 

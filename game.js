@@ -1056,6 +1056,105 @@
   const platformCacheCtx = platformCache.getContext('2d');
   let platformCacheKey = '';
 
+  // ── Surface grain (2026-08 "real textures" ask, resolved to procedural
+  // speckle on the night palette — no asset files, no packs). Speckle
+  // positions hash from the tile's LOGICAL cell, never render coordinates
+  // (the fractional-gz class of bug), and are projected through the same
+  // camera math as the tiles, so grain sticks to the ground while the
+  // camera turns. Marks batch into four fills — but this is NOT
+  // allocation-free: the per-cell RNG closures and the point literals
+  // in the loop run ~1-2k objects per rebuild, and the cache misses
+  // every frame during a rotate or shake. Measured acceptable, not
+  // free; see HANDOFF "allocation follow-up" before adding more here.
+  let GRAIN = 0.55; // designer knob; 0 disables. Live: vh-dev-grain {amount}
+
+  // Same cell, same speckles, every rebuild (the +40 keeps the shipped
+  // pattern identical to before E.hashRand was hoisted to the engine)
+  const speckleRand = (gx, gy, gz) => E.hashRand(gx + 40, gy + 40, gz + 40);
+
+  const SPECK_TOP = 9;  // speckles per grass top face
+  const SPECK_SIDE = 6; // speckles per visible cliff face
+
+  // One parallelogram on a face, in grid space: base point p (screen),
+  // edge vectors a/b (screen), size k as a fraction of the tile edge
+  function speckQuad(ctx, p, a, b, k) {
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + a.x * k, p.y + a.y * k);
+    ctx.lineTo(p.x + (a.x + b.x) * k, p.y + (a.y + b.y) * k);
+    ctx.lineTo(p.x + b.x * k, p.y + b.y * k);
+    ctx.closePath();
+  }
+
+  // Emit every speckle for the platform into the CURRENT path, keeping
+  // only the ones whose parity matches `pass` (0 = dark, 1 = light). Two
+  // passes re-run the same deterministic sequence — cheaper than arrays.
+  // One E.toScreen per FACE, not per speckle: speckle offsets ride the
+  // frame's face vectors, which is the same projection by another route.
+  function emitGrain(ctx, dip, pass) {
+    const fv = E.fv;
+    const ux = fv.ux, uy = fv.uy, uz = fv.uz;
+    // Grass tops (the whole island). Top surface of gz=-1 sits at z = -dip.
+    for (let gx = W.GRID_MIN; gx <= W.GRID_MAX; gx++) {
+      for (let gy = W.GRID_MIN; gy <= W.GRID_MAX; gy++) {
+        const o = E.toScreen(gx, gy, -dip);
+        const rnd = speckleRand(gx, gy, -1);
+        for (let i = 0; i < SPECK_TOP; i++) {
+          const k = 0.05 + rnd() * 0.08;
+          const u = 0.04 + rnd() * (0.92 - k);
+          const v = 0.04 + rnd() * (0.92 - k);
+          if (i % 2 !== pass) continue;
+          speckQuad(ctx, { x: o.x + ux.x * u + uy.x * v, y: o.y + ux.y * u + uy.y * v }, ux, uy, k);
+        }
+      }
+    }
+    // The visible cliff: outer X and Y walls only (interior side faces are
+    // hidden under neighbouring tiles). Grass row (gz=-1) + dirt row (gz=-2).
+    const gxEdge = fv.xVisible ? W.GRID_MAX : W.GRID_MIN;
+    const gyEdge = fv.yVisible ? W.GRID_MAX : W.GRID_MIN;
+    const xPlane = fv.xVisible ? gxEdge + 1 : gxEdge; // matches drawBlock's face pick
+    const yPlane = fv.yVisible ? gyEdge + 1 : gyEdge;
+    for (let g = W.GRID_MIN; g <= W.GRID_MAX; g++) {
+      for (const gz of [-1, -2]) {
+        // ±X wall face of tile (gxEdge, g, gz)
+        const ox = E.toScreen(xPlane, g, gz - dip);
+        let rnd = speckleRand(gxEdge * 3 + 101, g, gz);
+        for (let i = 0; i < SPECK_SIDE; i++) {
+          const k = 0.05 + rnd() * 0.07;
+          const t = 0.04 + rnd() * (0.92 - k);
+          const h = 0.04 + rnd() * (0.92 - k);
+          if (i % 2 !== pass) continue;
+          speckQuad(ctx, { x: ox.x + uy.x * t + uz.x * h, y: ox.y + uy.y * t + uz.y * h }, uy, uz, k);
+        }
+        // ±Y wall face of tile (g, gyEdge, gz)
+        const oy = E.toScreen(g, yPlane, gz - dip);
+        rnd = speckleRand(g, gyEdge * 3 + 107, gz);
+        for (let i = 0; i < SPECK_SIDE; i++) {
+          const k = 0.05 + rnd() * 0.07;
+          const t = 0.04 + rnd() * (0.92 - k);
+          const h = 0.04 + rnd() * (0.92 - k);
+          if (i % 2 !== pass) continue;
+          speckQuad(ctx, { x: oy.x + ux.x * t + uz.x * h, y: oy.y + ux.y * t + uz.y * h }, ux, uz, k);
+        }
+      }
+    }
+  }
+
+  function drawPlatformGrain(dip) {
+    if (!(GRAIN > 0)) return; // fail CLOSED on NaN
+    const ctx = E.ctx; // called inside drawPlatform's E.ctx swap → the cache
+    ctx.beginPath();
+    emitGrain(ctx, dip, 0);
+    ctx.globalAlpha = Math.min(1, GRAIN * 0.16);
+    ctx.fillStyle = '#000000';
+    ctx.fill();
+    ctx.beginPath();
+    emitGrain(ctx, dip, 1);
+    ctx.globalAlpha = Math.min(1, GRAIN * 0.10);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
   function getPlatformTiles() {
     if (platformTiles && platformAngle === cam.angle) return platformTiles;
     platformTiles = [];
@@ -1088,6 +1187,7 @@
       E.ctx = platformCacheCtx; // world drawing helpers target E.ctx
       getPlatformTiles().forEach(t =>
         W.drawBlock(t.gx, t.gy, t.gz - dip, t.color, 1, { gridTop: t.color === 'grass' }));
+      drawPlatformGrain(dip); // after every tile: tops are never occluded, walls are boundary-only
       E.ctx = mainCtx;
     }
     E.ctx.drawImage(platformCache, 0, 0, platformCache.width, platformCache.height, 0, 0, E.W, E.H);
@@ -1538,6 +1638,41 @@
     if (d.shadow !== undefined) E.SHADOW_STRENGTH = d.shadow;
     console.log('[dev-light] gain', E.LIGHT_GAIN, 'blur', E.LIGHT_BLUR,
       'moon', E.MOON_ALT, 'shadow', E.SHADOW_STRENGTH);
+  });
+  // Flower density on the Hanging Gardens. Default 1.2 (designer-picked
+  // on screen). Only EXACTLY 0 turns them off — the count floor is 1 per
+  // piece, so 0.01 still plants one.
+  document.addEventListener('vh-dev-flowers', (e) => {
+    const d = e.detail || {};
+    if (d.amount != null) W.FLOWERS_ON = Math.max(0, +d.amount);
+    console.log('[dev-flowers]', JSON.stringify({ amount: W.FLOWERS_ON }));
+  });
+  // Live material-texture tuning, PER FAMILY, so any family that reads
+  // as noise can be zeroed on screen without touching the others.
+  // {family: 'stone'|'brick'|…|'all', amount: 0..~1.5}; 0 disables.
+  document.addEventListener('vh-dev-material', (e) => {
+    const d = e.detail || {};
+    if (d.amount != null) {
+      const amt = Math.max(0, +d.amount);
+      if (!d.family || d.family === 'all') Object.keys(W.MAT).forEach(k => { W.MAT[k] = amt; });
+      else if (W.MAT[d.family] != null) W.MAT[d.family] = amt;
+      else console.warn('[dev-material] unknown family:', d.family);
+    }
+    console.log('[dev-material]', JSON.stringify(W.MAT));
+  });
+  // Live grain tuning: the designer picks the amount ON SCREEN, never
+  // from a description — same idiom as vh-dev-light. 0 disables.
+  document.addEventListener('vh-dev-grain', (e) => {
+    const d = e.detail || {};
+    // Number.isFinite, not just +: a non-numeric amount yields NaN,
+    // NaN <= 0 is FALSE so the early-out fails OPEN, and assigning NaN
+    // to globalAlpha is a spec no-op that leaves the previous value —
+    // 1 — painting the island in solid black and white speckle, baked
+    // into the platform cache. The sibling hooks fail closed; this
+    // one didn't.
+    if (d.amount != null && Number.isFinite(+d.amount)) GRAIN = Math.max(0, +d.amount);
+    platformCacheKey = ''; // force a repaint so the change shows this frame
+    console.log('[dev-grain]', JSON.stringify({ amount: GRAIN }));
   });
   // Live audio tuning: the mix dials most likely to need review iteration
   // (wet = reverb amount, spread = stereo width, master = pre-limiter

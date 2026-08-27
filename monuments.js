@@ -1049,9 +1049,19 @@
           gx: m.gx, gy: m.gy, gz: m.gz, sxy: m.sxy, sy: m.sy, sz: m.sz,
           // shade: deterministic per-piece tonal jitter — free stone-course
           // variation. contact: ground courses read as seated, not placed.
-          draw: () => W.drawBlock(m.gx, m.gy, m.gz - dip, m.color, op,
-            { styled: true, sxy: m.sxy, sy: m.sy, sz: m.sz,
-              shade: pieceShade(m), contact: m.gz === 0 }),
+          // 'grass' is the gardens' greenery and nothing else's among
+          // the monuments, so the colour IS the "plant here" signal —
+          // no new field on any model. Flowers draw immediately after
+          // their own piece, which keeps them correctly occluded by
+          // anything sorted in front.
+          draw: () => {
+            W.drawBlock(m.gx, m.gy, m.gz - dip, m.color, op,
+              { styled: true, sxy: m.sxy, sy: m.sy, sz: m.sz, tex: m,
+                shade: pieceShade(m), contact: m.gz === 0 });
+            if (m.color === 'grass') {
+              W.drawFlowers(m.gx, m.gy, m.gz - dip, m.sxy, m.sy, m.sz, m, op);
+            }
+          },
         });
       });
     });
@@ -1091,9 +1101,17 @@
             gx: m.gx, gy: m.gy, gz: m.gz, sxy: m.sxy, sy: m.sy, sz: m.sz,
             draw: () => {
               const pop = backOut(m.pop);
-              W.drawBlock(m.gx, m.gy, m.gz - dip, m.color, Math.min(1, m.pop * 2),
-                { styled: true, sxy: m.sxy * pop, sy: m.sy * pop, sz: m.sz * pop,
+              // tex is the LOGICAL piece — mark counts stay pinned to the
+              // true size while the drawn basis pops, so texture scales
+              // smoothly with the piece instead of re-tiling every frame
+              const cop = Math.min(1, m.pop * 2);
+              W.drawBlock(m.gx, m.gy, m.gz - dip, m.color, cop,
+                { styled: true, sxy: m.sxy * pop, sy: m.sy * pop, sz: m.sz * pop, tex: m,
                   shade: pieceShade(m), contact: m.gz === 0 });
+              if (m.color === 'grass') {
+                W.drawFlowers(m.gx, m.gy, m.gz - dip,
+                  m.sxy * pop, m.sy * pop, m.sz * pop, m, cop);
+              }
             },
           });
         });
