@@ -341,6 +341,16 @@
   C.close = (opts) => {
     if (panel.hidden) return;
     panel.hidden = true;
+    // Drop a chip's pending fake-dig beat. Without this the timeout still
+    // fires into a hidden panel: the lock stays set (so the next visit's
+    // first chip is dead) and Abe's answer is sitting there on reopen with
+    // no arrival. The comment on chipTimer promised this; it was never wired.
+    if (chipTimer) {
+      clearTimeout(chipTimer);
+      chipTimer = null;
+      inFlight = false;
+      stopDigging();
+    }
     if (VH.sfx && !(opts && opts.silent)) VH.sfx.uiTick('close');
     if (VH.gofer && VH.gofer.chatClose) VH.gofer.chatClose();
     if (lastFocus && lastFocus.focus && document.contains(lastFocus)) {

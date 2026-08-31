@@ -54,6 +54,7 @@
     if (E._clampPan) E._clampPan(); // viewport changed → pan bounds changed
     if (E._lightResize) E._lightResize();   // keep the light buffer in step
     if (E._shadowResize) E._shadowResize(); // and the shadow buffer
+    if (E._holoResize) E._holoResize();     // and the hologram buffer
   }
   E.resize = resize;
   resize();
@@ -324,6 +325,51 @@
     c.imageSmoothingEnabled = true; // half-res buffer upscales; smooth it
     c.globalAlpha = E.SHADOW_STRENGTH;
     c.drawImage(shadowCanvas, 0, 0, shadowCanvas.width, shadowCanvas.height, 0, 0, E.W, E.H);
+    c.restore();
+  };
+
+  // ── Hologram pass ───────────────────────────────────────────
+  // The ceremony's silhouette reveal. Same architecture as the shadow
+  // pass: shapes render OPAQUE into an offscreen half-res buffer (so
+  // overlapping monument pieces merge into one union of light instead
+  // of stacking additively — no internal seams, no hot spots), and the
+  // buffer composites onto the scene ONCE, additively, at the caller's
+  // strength. The strength knob is the whole crescendo: monuments.js
+  // ramps it up note by note and back down through the crossfade.
+  // Empty frames skip the blit entirely (the shadow pass's early-out).
+  const holoCanvas = document.createElement('canvas');
+  const holoCtx = holoCanvas.getContext('2d');
+  let holoUsed = false;
+
+  E._holoResize = () => {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    holoCanvas.width = Math.max(1, Math.ceil(E.W * dpr / 2));
+    holoCanvas.height = Math.max(1, Math.ceil(E.H * dpr / 2));
+    holoCtx.setTransform(dpr / 2, 0, 0, dpr / 2, 0, 0);
+  };
+  E._holoResize();
+
+  E.holoBegin = () => {
+    holoUsed = false;
+    holoCtx.save();
+    holoCtx.setTransform(1, 0, 0, 1, 0, 0);
+    holoCtx.clearRect(0, 0, holoCanvas.width, holoCanvas.height);
+    holoCtx.restore();
+  };
+
+  // Hands the buffer's context to the caller so the box-face geometry
+  // stays in world.js next to drawBlock (forking that math out here is
+  // the bodyBoxes class of bug).
+  E.holoDraw = (fn) => { holoUsed = true; fn(holoCtx); };
+
+  E.holoComposite = (strength) => {
+    if (!holoUsed || strength <= 0) return;
+    const c = E.ctx;
+    c.save();
+    c.imageSmoothingEnabled = true; // half-res buffer upscales; smooth it
+    c.globalCompositeOperation = 'lighter';
+    c.globalAlpha = Math.min(1, strength);
+    c.drawImage(holoCanvas, 0, 0, holoCanvas.width, holoCanvas.height, 0, 0, E.W, E.H);
     c.restore();
   };
 

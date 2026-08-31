@@ -237,6 +237,20 @@
         [0, 0, 2, '*'], [1, 0, 2, '*'],
       ],
       plainOnly: true,
+      // sameColor is LOAD-BEARING, not decoration (designer, 2026-08-31:
+      // "a user can accidentally make the Arc de Triomphe" while building
+      // a torii). The arc's 2×3 sits inside the torii's 3×3, and
+      // shouldDefer only stands the arc aside when a torii could contain
+      // ALL of the arc's matched blocks. Mixed colours broke that: your
+      // first red column plus ANY 3-high neighbour of another colour
+      // matched the arc, no red torii could contain the neighbour, so
+      // viable=false, no deferral, and the torii died on its THIRD block.
+      // Measured: clean board = torii every time; one blue column beside
+      // it = arc on block 3, every time. Requiring one colour removes the
+      // mixed match entirely, and an all-red pair then defers correctly.
+      // Cost, accepted: a RED arc is impossible until the torii is
+      // discovered — the same bargain the towers already make.
+      sameColor: true,
       // Cream marble: plinths, piers with raised relief panels (they
       // must protrude — a correct sorter hides embedded detail), frieze,
       // cornice, attic, top cornice.
@@ -937,8 +951,12 @@
         sxy: sx, sy, sz: e[4], color: e[5], glow: !!e[6],
         sign: e[7] || false, // a MARK KEY into world.js SIGN_MARKS ('prudential', 'bny')
         win: e[8] || 0,
-        appearAt: 0.7 + (e[2] / maxDz) * 0.75, // bottom-up pop-in
+        // appearAt drives the mallet notes AND the hologram's per-layer
+        // lighting (bottom-up); the MATTER now arrives all at once at
+        // TRANSFORM_AT, decoupled from this schedule.
+        appearAt: 0.7 + (e[2] / maxDz) * 0.75,
         pop: pending ? 0 : 1,
+        lit: pending ? 0 : 1, // hologram layer-light, ramped after appearAt
       };
     });
     const monument = {
@@ -957,6 +975,55 @@
     W.markDirty();
     return monument;
   };
+
+  // ── Ceremony tuning ─────────────────────────────────────────
+  // GATHER is the beat the MUSIC is written to (sfx.js schedules the
+  // whole phrase up front: true silence at 0.66, bell at 0.70) — the
+  // smash must land on it. FLOAT_CUT gives the flash frame cover.
+  const GATHER = 0.7;       // seconds of vortex before the smash
+  const FLOAT_CUT = 0.75;   // floaters draw until here (flash covers the cut)
+  const TAU = Math.PI * 2;
+  const TURNS = 1.25;       // revolutions over the gather (angle ∝ p²: slow start, whip finish)
+  const R_FLOOR = 0.35;     // min orbit radius — full overlap gives the occlusion
+                            // sort no separating axis and blocks pop in draw order
+  // The hologram arc, keyed to the pre-scheduled music (sfx.js): bell
+  // at 0.70 births the silhouette dim; one mallet note per layer 0.70 →
+  // ~1.45 lights it bottom-up, brighter and brighter; the crossfade
+  // then dissolves light into matter as ONE object — no stagger. The
+  // settle note at 1.55 lands mid-crossfade. Ceremony still ends at 2.0.
+  const HOLO_IN = 0.12;       // silhouette blooms in after the smash
+  const LIT_RAMP = 0.25;      // seconds for one layer to light after its note
+  const TRANSFORM_AT = 1.45;  // all matter arrives together from here
+  const XFADE = 0.22;         // light dissolves as stone fades up
+
+  // The ONE source of truth for where a swirling floater is — the draw
+  // path and the shadow path both read this. (Forking the interpolation
+  // between them is exactly the bodyBoxes class of bug.)
+  // Returns grid position + the stretch scales; caller applies dip.
+  function floaterPose(c, f, p, ease, riseEase) {
+    if (E.reducedMotion) {
+      // Honest reduced-motion answer: no orbit at all. The blocks stay
+      // put, rise a hair, and cross-fade out under the flash (the fade
+      // lives in drawFloater; a small-amplitude spiral is still a spiral).
+      return { gx: f.gx, gy: f.gy, gz: f.gz + riseEase * 0.15, sxy: 1, sz: 1 };
+    }
+    // The vortex: angle accelerates (p²), radius collapses, rise leads
+    // (riseEase finishes ~60% in — blocks clear the monument's height
+    // before they travel, which keeps them out of its rising model).
+    const theta = f.theta0 + TURNS * TAU * p * p * (1 + f.phase * 0.15);
+    const r = Math.max(R_FLOOR, f.r0 * Math.pow(1 - p, 1.6));
+    // Stretch along the fling — drawn out vertically mid-swirl, easing
+    // back to a clean cube for the impact frame (same trick as the
+    // launch stretch in world.js: squash = -0.18, "stretch as it leaves").
+    const st = Math.sin(Math.min(1, p * 1.25) * Math.PI); // 0 → 1 → 0
+    return {
+      gx: c.cx - 0.5 + Math.cos(theta) * r,
+      gy: c.cy - 0.5 + Math.sin(theta) * r,
+      gz: f.gz + riseEase * f.rise,
+      sxy: 1 - st * 0.18,
+      sz: 1 + st * 0.35,
+    };
+  }
 
   function startCeremony(match) {
     const { recipe, ox, oy, oz, k, blocks } = match;
@@ -1004,11 +1071,21 @@
 
     ceremonies.push({
       recipe, t: 0, cx, cy, cz,
-      floaters: blocks.map(b => ({
-        gx: b.gx, gy: b.gy, gz: b.gz, color: b.color,
-        rise: Math.max(1.1, clearTop + 0.4 - b.gz),
-        spin: 0, spinVel: 2 + Math.random() * 3,
-      })),
+      // Vortex seeds: each block enters the spiral from where it stood
+      // (theta0/r0 are its true polar offset from the centre); phase
+      // de-syncs the turn counts so the flock never moves as one rigid
+      // body. (The old spin/spinVel drove a 2D sprite rock in
+      // drawFloater — half of the "flat card" read; gone with it.)
+      floaters: blocks.map(b => {
+        const dx = b.gx - (cx - 0.5), dy = b.gy - (cy - 0.5);
+        return {
+          gx: b.gx, gy: b.gy, gz: b.gz, color: b.color,
+          rise: Math.max(1.1, clearTop + 0.4 - b.gz),
+          r0: Math.max(R_FLOOR, Math.hypot(dx, dy)),
+          theta0: Math.atan2(dy, dx),
+          phase: Math.random(),
+        };
+      }),
       monument,
       flashed: false,
     });
@@ -1107,9 +1184,32 @@
     for (let i = ceremonies.length - 1; i >= 0; i--) {
       const c = ceremonies[i];
       c.t += dt;
-      c.floaters.forEach(f => { f.spin += f.spinVel * dt; }); // state here, drawing in pushEntries
 
-      if (!c.flashed && c.t >= 0.7) {
+      // The vortex's skirt: a mote or two of ground debris per frame,
+      // thrown TANGENTIALLY around the shrinking ring (dx/dy is
+      // spawnSoil's travel tilt). Particles draw after the depth sort,
+      // so the skirt can never be occluded by the monument — and soil
+      // self-gates on reduced motion, but we gate anyway to skip the
+      // wasted math. fine:true — crumbs, not calving boulders.
+      if (!E.reducedMotion && VH.fx && c.t < GATHER) {
+        const p = c.t / GATHER;
+        const swirl = 1.5 + p * 2.5;
+        const n = 1 + (Math.random() < 0.35 ? 1 : 0);
+        for (let k = 0; k < n; k++) {
+          const ang = Math.random() * TAU;
+          const r = 0.4 + Math.random() * 1.5 * (1 - p * 0.5);
+          VH.fx.spawnSoil(
+            c.cx - 0.5 + Math.cos(ang) * r,
+            c.cy - 0.5 + Math.sin(ang) * r,
+            Math.max(0, c.cz - 0.5),
+            1,
+            { fine: true, up: 2.2 + p * 3, out: 0.8,
+              dx: -Math.sin(ang) * swirl, dy: Math.cos(ang) * swirl,
+              life: 0.4, lifeSpan: 0.2 });
+        }
+      }
+
+      if (!c.flashed && c.t >= GATHER) {
         c.flashed = true;
         // The entrance hero's landing weight, given to every ceremony
         // (designer, 2026-08-29): shake + dip were already here, but the
@@ -1119,12 +1219,23 @@
         // kickHitStop is render-loop only, so harnesses are unaffected.
         if (!E.reducedMotion) {
           E.kickShake(4); W.kickDip(1.5);
-          W.kickHitStop(Math.min(0.1, 0.04 + c.recipe.cells.length * 0.005));
+          // A touch more hit-stop than the old drift-and-cut earned:
+          // the blocks now genuinely COLLIDE here, and the freeze is
+          // what sells mass meeting mass.
+          W.kickHitStop(Math.min(0.12, 0.05 + c.recipe.cells.length * 0.005));
         }
         if (VH.fx) {
           VH.fx.spawnDust(Math.round(c.cx - 0.5), Math.round(c.cy - 0.5), Math.max(0, Math.round(c.cz - 0.5)), 14);
           // The bloom (drawn by fx.js flashes — shared with firework detonations)
           VH.fx.spawnFlash(c.cx, c.cy, c.cz, { dur: 0.45, r0: 2, r1: 7, peak: 0.85 });
+          // The compression ring: a fast tight-to-wide pulse reading as
+          // the shockwave of the smash itself, under the slower bloom.
+          // Gated: spawnFlash does NOT self-gate on reduced motion (unlike
+          // spawnSoil/spawnBurst), so stacking a second bloom here would
+          // hand a visitor who asked for LESS a brighter combined flash.
+          if (!E.reducedMotion) {
+            VH.fx.spawnFlash(c.cx, c.cy, c.cz, { dur: 0.28, r0: 0.4, r1: 5.5, peak: 0.5 });
+          }
         }
         // (The flash SOUND — the bell — was scheduled with the whole
         // ceremony phrase in startCeremony; nothing to trigger here.)
@@ -1146,15 +1257,20 @@
         W.resettle(); // physics owns whatever the sweep's policy spared
       }
 
-      // Pop the model cubes in
+      // The crescendo, then the crossfade. appearAt lights each layer's
+      // patch of the hologram on its mallet note (bottom-up, brighter
+      // and brighter); the matter itself waits and arrives TOGETHER at
+      // TRANSFORM_AT — the old per-piece pop stagger was a course-by-
+      // course build, not a transformation (designer, 2026-08-31).
       c.monument.model.forEach(m => {
-        if (c.t > m.appearAt) m.pop = Math.min(1, m.pop + dt / 0.16);
+        if (c.t > m.appearAt) m.lit = Math.min(1, m.lit + dt / LIT_RAMP);
+        if (c.t >= TRANSFORM_AT) m.pop = Math.min(1, m.pop + dt / XFADE);
       });
 
       if (c.t >= 2.0) {
         // Theater over: reveal the (already-real) monument permanently
         c.monument.pending = false;
-        c.monument.model.forEach(m => { m.pop = 1; });
+        c.monument.model.forEach(m => { m.pop = 1; m.lit = 1; });
         ceremonies.splice(i, 1);
       }
     }
@@ -1166,7 +1282,7 @@
   M.clearCeremonies = () => {
     ceremonies.forEach(c => {
       c.monument.pending = false;
-      c.monument.model.forEach(m => { m.pop = 1; });
+      c.monument.model.forEach(m => { m.pop = 1; m.lit = 1; });
     });
     ceremonies.length = 0;
   };
@@ -1299,20 +1415,21 @@
     // the two root causes of "blocks glitch through each other": correct
     // occlusion was impossible by construction.
     ceremonies.forEach(c => {
-      if (c.t < 0.75) {
-        // Gathering: consumed blocks lift, spin, drift, glow. The RISE
-        // leads the drift (finishes ~60% in), so floaters are above the
-        // clearance height before they travel sideways.
-        const p = Math.min(1, c.t / 0.7);
+      if (c.t < FLOAT_CUT) {
+        // Gathering: the vortex. Consumed blocks spiral inward — angle
+        // accelerating, radius collapsing, stretched along the fling —
+        // and smash together at the centre on the music's bell.
+        // floaterPose is the single source of truth for the motion
+        // (the shadow pass reads the same function).
+        const p = Math.min(1, c.t / GATHER);
         const ease = 1 - Math.pow(1 - p, 2);
         const riseEase = 1 - Math.pow(1 - Math.min(1, p * 1.6), 2);
         c.floaters.forEach(f => {
-          const gx = f.gx + (c.cx - 0.5 - f.gx) * ease * 0.25;
-          const gy = f.gy + (c.cy - 0.5 - f.gy) * ease * 0.25;
-          const gz = f.gz + riseEase * (E.reducedMotion ? 0.15 : f.rise);
+          const pose = floaterPose(c, f, p, ease, riseEase);
           entries.push({
-            gx, gy, gz, sxy: 1, sy: 1, sz: 1,
-            draw: () => drawFloater(f, gx, gy, gz - dip, ease),
+            gx: pose.gx, gy: pose.gy, gz: pose.gz,
+            sxy: pose.sxy, sy: pose.sxy, sz: pose.sz,
+            draw: () => drawFloater(f, pose, ease, dip),
           });
         });
       }
@@ -1321,8 +1438,12 @@
       // fx.js's shared flash system after the sorted pass.)
 
       // The rising model — full-size boxes (the pop scale only shrinks a
-      // piece INSIDE its box), so nothing snaps when pending flips at t=2.0
-      if (c.t >= 0.7) {
+      // piece INSIDE its box), so nothing snaps when pending flips at
+      // t=2.0. The hologram silhouette is NOT drawn here: it renders as
+      // one union into the engine's holo buffer (M.drawHologram, called
+      // after the sorted pass) — per-piece additive ghosts in this pass
+      // piled up at every overlap and drew seams down the silhouette.
+      if (c.t >= GATHER) {
         c.monument.model.forEach(m => {
           if (m.pop <= 0) return;
           entries.push({
@@ -1360,19 +1481,19 @@
   // it keys off the caster's top height.
   M.pushShadowCasters = (dip, heightFade) => {
     ceremonies.forEach(c => {
-      if (c.t < 0.75) {
-        // Same interpolation as the floater DRAW path above
-        const p = Math.min(1, c.t / 0.7);
+      if (c.t < FLOAT_CUT) {
+        // Same floaterPose as the draw path — one source of truth, so
+        // a shadow can never detach from its swirling block.
+        const p = Math.min(1, c.t / GATHER);
         const ease = 1 - Math.pow(1 - p, 2);
         const riseEase = 1 - Math.pow(1 - Math.min(1, p * 1.6), 2);
         c.floaters.forEach(f => {
-          const gx = f.gx + (c.cx - 0.5 - f.gx) * ease * 0.25;
-          const gy = f.gy + (c.cy - 0.5 - f.gy) * ease * 0.25;
-          const gz = f.gz + riseEase * (E.reducedMotion ? 0.15 : f.rise);
-          E.addShadowBox(gx, gy, gz, 1, 1, heightFade(gz + 1), dip);
+          const pose = floaterPose(c, f, p, ease, riseEase);
+          E.addShadowBox(pose.gx, pose.gy, pose.gz, pose.sxy, pose.sz,
+            heightFade(pose.gz + pose.sz), dip);
         });
       }
-      if (c.t >= 0.7) {
+      if (c.t >= GATHER) {
         c.monument.model.forEach(m => {
           if (m.pop <= 0 || !M.castsShadow(m)) return;
           const pop = backOut(m.pop);
@@ -1383,24 +1504,81 @@
     });
   };
 
-  function drawFloater(f, gx, gy, gz, ease) {
+  // ── The hologram reveal ─────────────────────────────────────
+  // (designer, 2026-08-31: "the silhouette shows up, gets brighter and
+  // brighter, and then transforms into the monument")
+  // Every model piece renders OPAQUE into the engine's offscreen holo
+  // buffer — overlaps merge, so N boxes composite as ONE union of warm
+  // light with no internal seams — then the buffer blits onto the
+  // scene once, additively, at `strength`. The arc rides the music:
+  // born dim at the bell (0.70), each mallet note lights its layer
+  // (m.lit, bottom-up, 0.70→1.45), peak at TRANSFORM_AT, then the
+  // crossfade hands brightness to the arriving matter. Drawn after the
+  // depth-sorted pass: a hologram is light, it glows through the world
+  // the same way flashes and particles do.
+  M.drawHologram = (dip) => {
+    if (!ceremonies.length) return;
+    ceremonies.forEach(c => {
+      if (c.t < GATHER) return;
+      const born = Math.min(1, (c.t - GATHER) / HOLO_IN);
+      let litFrac = 0;
+      c.monument.model.forEach(m => { litFrac += m.lit; });
+      litFrac /= Math.max(1, c.monument.model.length);
+      const x = Math.max(0, Math.min(1, (c.t - TRANSFORM_AT) / XFADE));
+      let strength = born * (0.45 + 0.55 * litFrac) * (1 - x);
+      // Reduced motion keeps the hologram (a brightness ramp, not
+      // motion) but softer — no hot peak.
+      if (E.reducedMotion) strength *= 0.6;
+      if (strength <= 0.005) return;
+      E.holoBegin();
+      E.holoDraw((hctx) => {
+        c.monument.model.forEach(m => {
+          W.drawHoloBlock(hctx, m.gx, m.gy, m.gz - dip, {
+            sxy: m.sxy, sy: m.sy, sz: m.sz,
+            lum: 0.35 + 0.65 * m.lit, // unlit layers dim, lit layers full
+          });
+        });
+      });
+      E.holoComposite(strength);
+      // The silhouette spills real light on the island, handing off to
+      // the monument's own glow pieces as the crossfade completes.
+      const sc = E.toScreen(c.cx, c.cy, Math.max(0.5, c.cz) - dip);
+      E.addLight(sc.x, sc.y, E.TILE * E.SCALE * 5, '255,233,184', 0.18 * strength);
+    });
+  };
+
+  // No ctx.rotate here, deliberately: spinning the projected iso sprite
+  // in 2D was half the "flat card" read (the faces keep their shear at
+  // any angle, so it reads as a card flapping, not a cube tumbling).
+  // The orbit + stretch in floaterPose carry the motion instead.
+  function drawFloater(f, pose, ease, dip) {
     const ctx = E.ctx;
-    const center = E.toScreen(gx + 0.5, gy + 0.5, gz + 0.5);
-    ctx.save();
-    ctx.translate(center.x, center.y);
-    if (!E.reducedMotion) ctx.rotate(Math.sin(f.spin) * 0.35);
-    ctx.translate(-center.x, -center.y);
-    W.drawBlock(gx, gy, gz, f.color, 1, { styled: true });
-    // Glow overlay strengthens as the moment approaches (additive,
-    // so it reads as light on the block rather than white paint)
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = ease * 0.55;
-    ctx.fillStyle = '#fff6d8';
-    const t = E.TILE * E.SCALE;
-    ctx.fillRect(center.x - t, center.y - t * 1.4, t * 2, t * 2.6);
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.restore();
+    const gz = pose.gz - dip;
+    // Reduced motion: the no-orbit path cross-fades the block out under
+    // the flash instead of consuming it in a smash it never flew into.
+    const alpha = E.reducedMotion ? Math.max(0, 1 - ease) : 1;
+    if (alpha <= 0) return;
+    W.drawBlock(pose.gx, pose.gy, gz, f.color, alpha,
+      { styled: true, sxy: pose.sxy, sy: pose.sxy, sz: pose.sz });
+    // The charge glow: a radial falloff sized to the block plus a real
+    // entry in the bloom pass — light ON the cube, not paint over it.
+    // (The old version fillRect'd a screen-aligned #fff6d8 rectangle at
+    // up to 0.55 alpha: the literal flat card the designer called out.)
+    if (ease > 0.01) {
+      const center = E.toScreen(pose.gx + 0.5, pose.gy + 0.5, gz + 0.5);
+      const t = E.TILE * E.SCALE;
+      const r = t * (1.1 + ease * 0.5) * Math.max(pose.sxy, pose.sz);
+      const a = 0.38 * ease * alpha;
+      const grad = ctx.createRadialGradient(center.x, center.y, r * 0.15,
+        center.x, center.y, r);
+      grad.addColorStop(0, 'rgba(255,246,216,' + a.toFixed(3) + ')');
+      grad.addColorStop(1, 'rgba(255,246,216,0)');
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = grad;
+      ctx.fillRect(center.x - r, center.y - r, r * 2, r * 2);
+      ctx.globalCompositeOperation = 'source-over';
+      E.addLight(center.x, center.y, r * 2.2, '255,238,190', 0.10 * ease * alpha);
+    }
   }
 
   // Warm glow for monument cells flagged glow (lighthouse lamp, gold tip)
@@ -1517,8 +1695,12 @@
     const anyN = counts.get('*') || 0;
     if (anyN) {
       parts.push(anyN + (anyN === 1 ? ' block' : ' blocks') +
-        (recipe.sameColor ? ', all the same colour'
-          : recipe.plainOnly ? ', any plain colour' : ', any colour'));
+        // sameColor and plainOnly are not exclusive — the arc now sets
+        // BOTH, and a hint that mentions only one sends a player off to
+        // build six matching GLASS blocks and watch nothing happen.
+        (recipe.sameColor && recipe.plainOnly ? ', all the same plain color'
+          : recipe.sameColor ? ', all the same color'
+          : recipe.plainOnly ? ', any plain color' : ', any color'));
     }
     [...counts.entries()].filter(([k]) => k !== '*')
       .forEach(([k, n]) => parts.push(n + ' ' + k));

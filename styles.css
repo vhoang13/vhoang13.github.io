@@ -175,38 +175,56 @@ body {
   margin-bottom: 0.75rem;
 }
 
-/* Wraps because there are three links now, and the panel is capped at 260px:
-   without it "Say hello" breaks across two lines inside its own button. */
+/* One action per row, each filling the panel's width. A wrapped row of
+   three could not hold a ranking: buttons landed wherever the width let
+   them, so "most important" was decided by reflow. Stacked, position and
+   weight agree — first and heaviest is the primary action. */
 .panel-links {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .link-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  /* Hold each label on one line and let .panel-links wrap instead. Without
-     these, three buttons in a 260px panel shrink until "Say hello" breaks. */
-  white-space: nowrap;
-  flex-shrink: 0;
-  padding: 0.45rem 0.9rem;
+  justify-content: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 0.5rem 0.9rem;
   font-size: 0.75rem;
   font-weight: 500;
   border-radius: 7px;
   text-decoration: none;
+  /* Labels wrap rather than clip. Measured: at a 320px viewport the panel
+     is 144px, leaving ~104px inside a button, while "Connect on LinkedIn"
+     needs ~147px on one line — nowrap there is a clipped label, not a
+     tidy one. A centred two-line row is still a clean full-width button;
+     min-height already holds the rhythm. balance keeps the break even
+     instead of orphaning the last word. */
+  text-align: center;
+  line-height: 1.25;
+  text-wrap: balance;
+  /* A transparent border on every tier so the three sit on identical box
+     metrics — without it the outlined tier is 2px taller than its
+     neighbours and the stack's gaps read as uneven. */
+  border: 1px solid transparent;
   /* Only what hover actually changes — `all` also transitioned the
      backdrop context and made the boot fade-in costlier than it looked */
-  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease,
+    transform 0.2s ease;
 }
 
-/* Explicit class, not :first-child. The accent used to be positional, which
-   meant document order silently decided the primary action — and .link-btn
-   has no background of its own, so anything displaced from first position
-   rendered as bare text rather than as a ghost button. */
+/* Three explicit tiers, never positional. The accent used to be
+   :first-child, which meant document order silently decided the primary
+   action — and .link-btn has no background of its own, so anything
+   displaced from first position rendered as bare text.
+
+   PRIMARY — solid accent. The one thing a recruiter should click. */
 .link-btn--primary {
   background: var(--color-accent);
   color: #1a1a2e;
+  font-weight: 600; /* the only tier that earns extra weight */
 }
 
 .link-btn--primary:hover {
@@ -214,15 +232,36 @@ body {
   transform: translateY(-1px);
 }
 
-.link-btn--ghost {
+/* SECONDARY — outlined. Present and clickable, but clearly answering to
+   the primary above it. */
+.link-btn--secondary {
   background: var(--color-surface);
   color: var(--color-text);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
-.link-btn--ghost:hover {
+.link-btn--secondary:hover {
   background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.22);
   transform: translateY(-1px);
+}
+
+/* TERTIARY — text only. No fill, no border, dim: available without
+   competing. It keeps the full button box so the tap target survives
+   (the row is still 38px+), it just doesn't paint one. */
+.link-btn--tertiary {
+  background: transparent;
+  /* NOT --color-text-dim (#8888a0): the panel is 82% opaque, so the live
+     canvas bleeds through, and over the lit platform that dim ink measures
+     ~3.99:1 — under AA for 12px text. Every other use of the dim token is
+     decorative copy; this is the first INTERACTIVE label to carry it.
+     #a5a5bb holds ~5:1 even over the brightest ground. */
+  color: #a5a5bb;
+}
+
+.link-btn--tertiary:hover {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 /* ============================================
@@ -968,10 +1007,17 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
 
   .panel-desc { display: none; } /* keep the platform visible on small screens */
 
-  /* Three links do not fit a 185px panel: even wrapped they stack three
-     rows deep. LinkedIn is the least urgent of the three and is still in
-     the footer of every case study. Same call as .panel-desc above. */
-  .link-btn--optional { display: none; }
+  /* All three actions ship on phones. The old wrapped row could not hold
+     them (three rows deep in a 185px panel) so LinkedIn was dropped here;
+     stacked full-width rows cost the same height and keep the full set.
+     The hidden .panel-desc above pays for the extra row. */
+  /* 44px touch target, and tighter side padding to buy label width back:
+     the panel is only ~144px at 320px wide, so every pixel inside the
+     button is the difference between one line and two. */
+  .link-btn {
+    min-height: 44px;
+    padding-inline: 0.5rem;
+  }
 
   .controls {
     top: 1rem;

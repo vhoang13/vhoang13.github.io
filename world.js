@@ -325,6 +325,7 @@
     blastX: 0, blastY: 0, blastZ: 0,
     blastMode: 'fade',                // 'fade' (opacity ramp) | 'burst' (detonate at apex)
     blastGravity: 0,                  // 0 → default BLAST_GRAVITY at update time
+    fuse: 0,                          // seconds to keep FALLING past apex before detonating
     // Game feel
     squash: 0, squashVel: 0,          // squash-and-stretch spring
     lift: 0,                          // hover lift (grid units)
@@ -494,6 +495,7 @@
   // Firework launches use MUCH lighter gravity so the arc peaks in the
   // visible sky band (~6-13 units up) instead of thousands of px off-screen.
   const FIREWORK_GRAVITY = 90; // u/s²
+  const FUSE_FLOOR = 1.0;      // grid units above launch height where a fuse is cut short
 
   W.BLAST = { GRAVITY: BLAST_GRAVITY, FIREWORK_GRAVITY }; // exposed for game.js blast trigger
 
@@ -522,12 +524,14 @@
     const upFalloff = opts.upFalloff ?? 0.9;   // outer shells peak lower → a dome
     const delayBase = opts.delayBase ?? 0.09;
     const delayPerDist = opts.delayPerDist ?? 0.035;
-    // Per-block random launch spread ON TOP of the distance wave. Zero by
-    // default (ceremony sweeps keep their tight shockwave); the Clear
-    // passes ~1.5s so shells go up in loose volleys over a couple of
-    // seconds — a fireworks SHOW, not one salvo (designer note: "instead
-    // of everything going off at once").
-    const delayJitter = opts.delayJitter ?? 0;
+    // Per-block random FUSE: seconds a shell keeps flying past its apex
+    // before it detonates. Zero by default (ceremony sweeps pop at the top,
+    // as a tight shockwave should). The Clear passes a fraction of a second
+    // so the board rises as one mass and then breaks apart RAGGEDLY — some
+    // at the top, some after a visible beat of falling (designer, 2026-08-31:
+    // "I prefer the old animation where all of the pieces rise together, but
+    // I just want them to explode at different times").
+    const fuseJitter = opts.fuseJitter ?? 0;
     list.forEach(b => {
       if (b.blasting || b.preBlast !== null) return;
       const dx = b.gx - cx || (Math.random() - 0.5);
@@ -549,9 +553,9 @@
         b.blastMode = 'burst';
         b.blastGravity = FIREWORK_GRAVITY;
       }
+      b.fuse = reduced ? 0 : Math.random() * fuseJitter;
       b.blastX = 0; b.blastY = 0; b.blastZ = 0;
-      b.preBlast = reduced ? 0.01
-        : delayBase + dist * delayPerDist + Math.random() * delayJitter;
+      b.preBlast = reduced ? 0.01 : delayBase + dist * delayPerDist;
     });
   };
 
@@ -767,8 +771,17 @@
         b.blastZ += b.blastVelZ * dt;
         b.spin += b.spinVel * dt;
         if (b.blastMode === 'burst') {
-          // Fully opaque through the climb; the payoff is at the APEX
-          if (b.blastVelZ <= 0) { detonate(b); b.opacity = 0; }
+          // Fully opaque through the climb; the payoff is at the APEX —
+          // unless the shell drew a fuse, in which case it keeps falling,
+          // still solid and visible, for a beat before it breaks.
+          if (b.blastVelZ <= 0) {
+            // The floor guard: a long fuse must never carry a shell back
+            // down into the platform. FUSE_FLOOR is clearance, not zero —
+            // a fast-falling shell covers ~half a cell per frame, so
+            // cutting the fuse AT launch height still detonates below it.
+            if (b.fuse > 0 && b.blastZ > FUSE_FLOOR) b.fuse -= dt;
+            else { detonate(b); b.opacity = 0; }
+          }
         } else {
           b.opacity = Math.max(0, b.opacity - BLAST_FADE * dt);
         }
@@ -1144,13 +1157,33 @@
       // from seams by measurement, is back IN for banding.
       if (id === 2) {
         // Top face: broad sweep toward the light, dark far half. `lit`
-        // here is the SIGNED y-axis light (the top face's B axis is uy),
-        // so the sweep flips to the moon-facing edge instead of being
-        // glued to a world axis — pinned, it inverted against the
-        // moon every half-turn of the camera.
-        const far = lit < 0;
-        if (pass === 1) texMark(ctx, o, A, B, 0, far ? 0.70 : 0, 1, 0.30);
-        else texMark(ctx, o, A, B, 0, far ? 0 : 0.66, 1, 0.34);
+        // is the raw signed y-axis light (li.pyLight — continuous in
+        // camera angle, like the uy basis this face is drawn on).
+        // farness lerps the band ends instead of hard-switching them:
+        // the old `lit < 0` boolean teleported a 30%-of-face band from
+        // white to black in one frame at 45°/73°/225°/253° — the
+        // "panel just goes from light to dark" pop. Endpoints are the
+        // designed look and are exactly preserved at lit = ±1; the
+        // sweep now SLIDES between them mid-rotation.
+        //
+        // SOFT EDGES (designer, 2026-08-31: the torii's copper roof
+        // "reacting very strangely"). A hard-edged band whose position
+        // follows the light doesn't read as a highlight — it reads as a
+        // painted stripe CRAWLING across the surface as you rotate.
+        // Measured: averaged over the roof the brightness is smooth
+        // (max 12/255 per 3°), so this was never a lighting pop; it was
+        // the shape of the mark. Worst on big thin plates, where the
+        // band is long and the crawl is obvious — the torii roof
+        // (3.54×0.68) and the Crystal Palace's panels (up to 3.1×2.1).
+        // Fixed with the stacked-band fade already used for contact
+        // shading below (world.js ~1331): concentric slices of
+        // decreasing coverage sum to a soft-shouldered band, with no
+        // per-frame gradient allocation (the thing the light pass was
+        // built to eliminate). Total weight matches the old single
+        // band, so the material's strength is unchanged.
+        // The sweep is drawn by metalTopSweep() AFTER the batched pass —
+        // a soft shoulder needs nested fills that ACCUMULATE, and every
+        // mark inside one batched path shares a single alpha.
         return;
       }
       // Side faces (B is the vertical axis here): the specular sits
@@ -1191,6 +1224,40 @@
     }
   }
 
+  // Metal's top-face sweep, with a SOFT shoulder.
+  // Nested bands sharing one centre, each its own fill at a low alpha:
+  // the core is covered by all of them and lands at full strength, the
+  // outermost slice alone at the edges — a stepped falloff. Exactly the
+  // idiom the contact shading uses below (four stacked bands), and for
+  // the same reason: marks batched into ONE path share one alpha, so a
+  // gradient there is impossible, and per-frame canvas gradients are
+  // the allocation the light pass exists to avoid.
+  // SOFT widths are fractions of the band; STEPS is chosen so the summed
+  // alpha at the core matches the old single band's weight.
+  const SOFT_STEPS = [1.0, 0.66, 0.34];
+  function metalTopSweep(ctx, st, amt, opacity, o, A, B, lit) {
+    const farness = Math.max(0, Math.min(1, 0.5 - lit * 0.5));
+    const mlerp = (a, b) => a + (b - a) * farness;
+    // Centres travel between the same two ends the hard band used, now
+    // expressed as the band's MIDPOINT (old: its leading edge).
+    const runs = [
+      { a: st.light, tone: '#ffffff', centre: mlerp(0.15, 0.85), thick: 0.30 },
+      { a: st.dark, tone: '#000000', centre: mlerp(0.83, 0.17), thick: 0.34 },
+    ];
+    for (const r of runs) {
+      if (r.a <= 0) continue;
+      ctx.fillStyle = r.tone;
+      ctx.globalAlpha = opacity * amt * r.a / SOFT_STEPS.length;
+      for (const w of SOFT_STEPS) {
+        const t = r.thick * w;
+        const v = Math.max(0, Math.min(1 - t, r.centre - t / 2));
+        ctx.beginPath();
+        texMark(ctx, o, A, B, 0, v, 1, t);
+        ctx.fill();
+      }
+    }
+  }
+
   // The whole pass for one piece: three visible faces, two tone fills.
   // Seeds hash the piece's logical HOME cell (tp.gx/gy/gz — fractional
   // but stable) plus a per-face term, so opposite-axis faces of one
@@ -1212,18 +1279,75 @@
       const yo = yVisible ? { x: ref.x + uy.x, y: ref.y + uy.y } : ref;
       texFace(ctx, fam, E.hashRand(hx, hy + 3, hz), yo, ux, uz, lsx, lsz, 1, pass, yLit, rough);
       const to = { x: ref.x + uz.x, y: ref.y + uz.y };
-      // Top face gets the SIGNED y-axis light, not topLight: metal's
-      // sweep needs to know which EDGE the moon is on, and topLight
-      // (a scalar "how lit is up") cannot say.
-      texFace(ctx, fam, E.hashRand(hx, hy, hz + 5), to, ux, uy, lsx, lsy, 2, pass, yLit, rough);
+      // Top face gets the RAW signed y-axis light (li.pyLight), never
+      // the visibility-signed yLit: this face's B axis is uy, which
+      // rotates continuously and never flips, so a light term that
+      // inverts at the yVisible boundary (45°) would — and did — pop
+      // the metal sweep mid-rotation while the face is at full area.
+      // (topLight is wrong for a different reason: a scalar "how lit
+      // is up" can't say which EDGE the moon is on.)
+      // Metal's top face opts OUT of the batch — its soft sweep needs
+      // accumulating fills; see metalTopSweep below.
+      texFace(ctx, fam, E.hashRand(hx, hy, hz + 5), to, ux, uy, lsx, lsy, 2, pass, li.pyLight, rough);
       ctx.globalAlpha = opacity * amt * a;
       ctx.fillStyle = pass === 0 ? '#000000' : '#ffffff';
       ctx.fill();
+    }
+    if (fam === 'metal') {
+      const to = { x: ref.x + uz.x, y: ref.y + uz.y };
+      metalTopSweep(ctx, st, amt, opacity, to, ux, uy, li.pyLight);
     }
   }
 
   // Smallest largest-dimension that still earns outlines + moonlit rim
   const STROKE_MIN = 0.35;
+
+  // ── The hologram block ──────────────────────────────────────
+  // A block held in LIGHT — the ceremony's silhouette reveal. Same
+  // three-face geometry as drawBlock (verbatim vertex math), drawn into
+  // a caller-supplied OFFSCREEN context (the engine's hologram buffer),
+  // never E.ctx directly. Fills are OPAQUE — the union trick: inside a
+  // source-over buffer, overlapping pieces overwrite instead of piling
+  // up, so internal seams vanish and N boxes read as ONE shape of
+  // light. Depth comes from LUMINANCE, not alpha (top face brightest,
+  // like the moonlight); opts.lum scales all three faces for the
+  // per-layer crescendo. Named drawHoloBlock: W.drawGhostBlock already
+  // exists (the drag-placement preview) — a second definition with
+  // that name silently shadowed this one and the ceremony drew the
+  // preview cube instead. Grep-guard: exactly one definition of each.
+  const HOLO_R = 255, HOLO_G = 233, HOLO_B = 184; // warm gold (#ffe9b8)
+  W.drawHoloBlock = (ctx, gx, gy, gz, opts = {}) => {
+    const sxy = opts.sxy || 1;
+    const sy = opts.sy != null ? opts.sy : sxy;
+    const sz = opts.sz || 1;
+    const lum = opts.lum != null ? opts.lum : 1;
+    if (lum <= 0) return;
+    const ref = E.toScreen(gx + (1 - sxy) / 2, gy + (1 - sy) / 2, gz);
+    const fv = E.fv;
+    const ux = { x: fv.ux.x * sxy, y: fv.ux.y * sxy };
+    const uy = { x: fv.uy.x * sy, y: fv.uy.y * sy };
+    const uz = { x: fv.uz.x * sz, y: fv.uz.y * sz };
+    const { xVisible, yVisible } = fv;
+    const opp = { x: ref.x + ux.x + uy.x + uz.x, y: ref.y + ux.y + uy.y + uz.y };
+    const P = (dx, dy) => ({ x: ref.x + dx, y: ref.y + dy });
+    const tone = (k) => {
+      const m = k * lum;
+      return 'rgb(' + Math.round(HOLO_R * m) + ',' + Math.round(HOLO_G * m) +
+        ',' + Math.round(HOLO_B * m) + ')';
+    };
+    const face = (a, b, c, d, shade) => {
+      ctx.fillStyle = tone(shade);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y);
+      ctx.closePath(); ctx.fill();
+    };
+    if (xVisible) face(P(ux.x, ux.y), P(ux.x + uz.x, ux.y + uz.y), opp, P(ux.x + uy.x, ux.y + uy.y), 0.72);
+    else face(P(0, 0), P(uz.x, uz.y), P(uy.x + uz.x, uy.y + uz.y), P(uy.x, uy.y), 0.72);
+    if (yVisible) face(P(uy.x, uy.y), P(uy.x + uz.x, uy.y + uz.y), opp, P(ux.x + uy.x, ux.y + uy.y), 0.55);
+    else face(P(0, 0), P(uz.x, uz.y), P(ux.x + uz.x, ux.y + uz.y), P(ux.x, ux.y), 0.55);
+    face(P(uz.x, uz.y), P(ux.x + uz.x, ux.y + uz.y), opp, P(uy.x + uz.x, uy.y + uz.y), 1.0);
+  };
 
   // opts: sxy/sz   squash scale (width / height)
   //       sy       y-axis footprint (defaults to sxy) — RECTANGULAR pieces.

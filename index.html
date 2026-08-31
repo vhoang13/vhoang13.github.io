@@ -6,6 +6,21 @@
   <title>Viet Hoang · Product designer, learning to build</title>
   <meta name="description" content="Product designer learning to build. The homepage is a game: stack blocks, and some shapes turn into monuments.">
   <meta name="theme-color" content="#1a1a2e">
+  <link rel="canonical" href="https://vietnhoang.com/">
+  <!-- The root domain is the link that goes on applications and LinkedIn;
+       it was the ONLY page with no social tags, so it unfurled as a bare
+       grey URL while the unfinished case studies unfurled properly.
+       No og:image yet (see the TODO in work/index.html) — summary, not
+       summary_large_image, so the card degrades honestly instead of
+       reserving space for an image that never arrives. -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://vietnhoang.com/">
+  <meta property="og:title" content="Viet Hoang · Product designer, learning to build">
+  <meta property="og:description" content="The homepage is a game: stack blocks, and some shapes turn into monuments. Built end to end — no frameworks, no game engine.">
+  <meta name="twitter:card" content="summary">
+  <!-- Inline SVG favicon: one request saved, and it matches the island's
+       block-on-night palette. Any tab was showing a blank page icon. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a1a2e'/%3E%3Cpath d='M16 6l9 5.2v9.6L16 26l-9-5.2v-9.6z' fill='%237dd956'/%3E%3Cpath d='M16 6l9 5.2L16 16.5 7 11.2z' fill='%23a8ea86'/%3E%3Cpath d='M16 16.5V26l-9-5.2v-9.6z' fill='%2360b13f'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Press+Start+2P&display=swap" rel="stylesheet">
@@ -29,13 +44,17 @@
       You're standing in one of the experiments. Click the grass to drop a
       block, and see what your shapes turn into.
     </p>
-    <!-- Work is the primary action: for a job search, seeing the work outranks
-         starting a conversation. --optional hides on phones, where three
-         buttons cannot fit the panel; LinkedIn stays in every case-study footer. -->
+    <!-- One stacked, full-width action per row, in explicit priority order:
+         for a job search, seeing the work outranks starting a conversation,
+         which outranks a social profile. The three weights (solid / outlined
+         / text) carry that ranking visually so the eye ranks them the same
+         way the labels do. All three ship on phones now — stacked they fit,
+         where the old wrapped row did not. -->
     <div class="panel-links">
-      <a href="work/" class="link-btn link-btn--primary">Work</a>
-      <a href="mailto:viet@vietnhoang.com" class="link-btn link-btn--ghost">Say hello</a>
-      <a href="https://linkedin.com/in/vietnhoang" target="_blank" rel="noopener" class="link-btn link-btn--ghost link-btn--optional">LinkedIn</a>
+      <a href="work/" class="link-btn link-btn--primary">View case studies</a>
+      <a href="mailto:viet@vietnhoang.com" class="link-btn link-btn--secondary">Contact me</a>
+      <a href="https://linkedin.com/in/vietnhoang" target="_blank" rel="noopener"
+         class="link-btn link-btn--tertiary">Connect on LinkedIn</a>
     </div>
   </div>
   <!-- The tucked-panel pill: appears when the intro folds away (zoomed
@@ -77,7 +96,7 @@
 
   <!-- Colour swatches — unfold above the hotbar while the colour slot is
        selected. Buttons are built by game.js from the block palette. -->
-  <div class="swatches" id="swatches" role="toolbar" aria-label="Block colours"></div>
+  <div class="swatches" id="swatches" role="toolbar" aria-label="Block colors"></div>
 
   <!-- Hotbar — block palette, bottom-center.
        Each slot NAMES its block: four little cubes read as four colours,
@@ -86,10 +105,10 @@
        is aria-hidden — the button's aria-label already says it, and the
        key number too, so exposing both would read everything twice. -->
   <div class="hotbar" id="hotbar" role="toolbar" aria-label="Block types">
-    <button class="slot selected" data-type="color" aria-label="Colour block (1)">
+    <button class="slot selected" data-type="color" aria-label="Color block (1)">
       <canvas class="slot-icon" width="64" height="64" aria-hidden="true"></canvas>
       <span class="slot-key">1</span>
-      <span class="slot-name" aria-hidden="true">Colour</span>
+      <span class="slot-name" aria-hidden="true">Color</span>
     </button>
     <button class="slot" data-type="grass" aria-label="Grass block (2)">
       <canvas class="slot-icon" width="64" height="64" aria-hidden="true"></canvas>
@@ -140,8 +159,13 @@
              autocomplete="off">
       <button class="chat-send" id="chatSend" type="submit" aria-label="Send">➤</button>
     </form>
+    <!-- Honest until the relay ships: the old line ("Typed questions are
+         answered by Claude") promised a service that is not deployed, so
+         a typed question fell back to Abe's blocked-tunnel line and the
+         page had told a small lie. Restore the credit when the worker
+         goes live — it is the accurate line at that point, not before. -->
     <div class="chat-foot">
-      Typed questions are answered by Claude ·
+      Abe is still learning to answer typed questions ·
       <a href="work/gofer/">Read the full case study</a>
     </div>
   </div>

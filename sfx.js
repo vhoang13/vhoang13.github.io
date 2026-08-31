@@ -839,10 +839,11 @@
     if (!ensure()) return;
     const t = actx.currentTime;
     barrage = {
-      // 4.5s, not 3: the Clear's delayJitter now spreads launches over
-      // ~2s, so late shells still detonate inside the barrage window
-      // (outside it they'd all claim hero booms — the machine-gun).
-      until: t + 4.5,
+      // Back to 3s: launches are one tight wave again, and the per-shell
+      // fuse puts the last detonation at ~1.4s — comfortably inside the
+      // window. (Shells detonating OUTSIDE it would each claim a hero
+      // boom, which is the machine-gun this window exists to prevent.)
+      until: t + 3,
       heroCap: clamp(Math.round(n * 0.25), 2, 10),  // a 6-block board: EVERY shell is a hero
       heroUsed: 0,
     };

@@ -951,15 +951,17 @@
     W.markDirty();
 
     // The launch itself lives in W.launchBlocks (shared with the ceremony's
-    // leftover sweep). delayJitter is the Clear's own note: shells rise in
-    // loose volleys over ~2s instead of one salvo — a fireworks SHOW
-    // (designer, 2026-08-31). The distance wave stays underneath so the
-    // show still blooms outward from the centre.
+    // leftover sweep). The whole board rises TOGETHER on the distance wave —
+    // the show is in the break, not the takeoff: fuseJitter gives each shell
+    // its own fuse so some pop at the apex and some fall a visible beat first
+    // (designer, 2026-08-31). Raise it for a raggeder break, lower it toward 0
+    // for a single clean flash; the floor guard in world.js keeps long fuses
+    // from carrying a shell below its launch height.
     W.launchBlocks(W.blocks, {
       cx: (W.GRID_MIN + W.GRID_MAX) / 2,
       cy: (W.GRID_MIN + W.GRID_MAX) / 2,
       delayPerDist: 0.05,
-      delayJitter: 1.5,
+      fuseJitter: 0.45,
     });
     const shellCount = W.blocks.length;
     if (E.reducedMotion) {
@@ -1139,7 +1141,7 @@
         b.setAttribute('aria-label', colorKey + ' blocks');
       } else {
         b.textContent = '?';
-        b.setAttribute('aria-label', 'Random colour');
+        b.setAttribute('aria-label', 'Random color');
       }
       b.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1681,6 +1683,10 @@
         );
       }
     });
+
+    // The ceremony's hologram silhouette — one union of light, drawn
+    // above the solid world (it's light: it glows through, like flashes)
+    VH.monuments.drawHologram(dip);
 
     // Monument glows (lighthouse lamp room, gold pyramidion)
     VH.monuments.drawGlows();
