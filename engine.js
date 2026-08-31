@@ -186,6 +186,15 @@
   // than a lone block, with banding.
   const shadowCanvas = document.createElement('canvas');
   const shadowCtx = shadowCanvas.getContext('2d');
+  // Scratch buffer for one blur BUCKET at a time: quads fill here sharp
+  // (cheap), then the whole bucket blurs in ONE filtered drawImage into
+  // shadowCanvas. The old path set ctx.filter and filled each quad
+  // individually — every fill paid a full blur rasterization, so a busy
+  // board (~180 casters) cost ~180 blur passes per frame and measured
+  // 278 ms/frame in software rendering. Same visual model (per-quad
+  // alpha, in-bucket stacking, per-bucket radius), ≤3 blurs per frame.
+  const shadowScratch = document.createElement('canvas');
+  const scratchCtx = shadowScratch.getContext('2d');
   E.SHADOW_STRENGTH = 0.4; // the ONE darkness number (composite alpha)
   let shadowQuads = [];
 
@@ -194,6 +203,9 @@
     shadowCanvas.width = Math.max(1, Math.ceil(E.W * dpr / 2));
     shadowCanvas.height = Math.max(1, Math.ceil(E.H * dpr / 2));
     shadowCtx.setTransform(dpr / 2, 0, 0, dpr / 2, 0, 0);
+    shadowScratch.width = shadowCanvas.width;
+    shadowScratch.height = shadowCanvas.height;
+    scratchCtx.setTransform(dpr / 2, 0, 0, dpr / 2, 0, 0);
   };
   E._shadowResize();
 
@@ -273,17 +285,32 @@
       for (const q of shadowQuads) {
         if (q.h > bk.maxH || q.done) continue;
         q.done = true;
-        if (!any) { shadowCtx.filter = filterOK ? `blur(${bk.blur}px)` : 'none'; any = true; }
-        shadowCtx.globalAlpha = q.alpha;
-        shadowCtx.fillStyle = '#000';
-        shadowCtx.beginPath();
-        shadowCtx.moveTo(q.poly[0].x, q.poly[0].y);
-        for (let k = 1; k < q.poly.length; k++) shadowCtx.lineTo(q.poly[k].x, q.poly[k].y);
-        shadowCtx.closePath();
-        shadowCtx.fill();
+        if (!any) {
+          // Bucket begins: wipe the scratch stage
+          scratchCtx.save();
+          scratchCtx.setTransform(1, 0, 0, 1, 0, 0);
+          scratchCtx.clearRect(0, 0, shadowScratch.width, shadowScratch.height);
+          scratchCtx.restore();
+          any = true;
+        }
+        // Sharp fill — the blur happens once for the whole bucket below
+        scratchCtx.globalAlpha = q.alpha;
+        scratchCtx.fillStyle = '#000';
+        scratchCtx.beginPath();
+        scratchCtx.moveTo(q.poly[0].x, q.poly[0].y);
+        for (let k = 1; k < q.poly.length; k++) scratchCtx.lineTo(q.poly[k].x, q.poly[k].y);
+        scratchCtx.closePath();
+        scratchCtx.fill();
+      }
+      if (any) {
+        scratchCtx.globalAlpha = 1;
+        shadowCtx.save();
+        shadowCtx.setTransform(1, 0, 0, 1, 0, 0);
+        shadowCtx.filter = filterOK ? `blur(${bk.blur}px)` : 'none';
+        shadowCtx.drawImage(shadowScratch, 0, 0);
+        shadowCtx.restore(); // restores filter + transform together
       }
     }
-    shadowCtx.filter = 'none';
     shadowCtx.globalAlpha = 1;
     const c = E.ctx;
     c.save();

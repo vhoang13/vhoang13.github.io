@@ -84,6 +84,36 @@
     return null;
   }
 
+  // ── Gofer hit testing ───────────────────────────────────────
+  // Same shape as hitTestMonument, and for the same reason: he is boxes,
+  // so the honest test is the real face quads, not a screen-space
+  // approximation that can drift from the pixels. He hands back the very
+  // boxes he draws (VH.gofer.hitBoxes), which returns null unless he is
+  // STANDING — the mound and the mid-duck scale are never targets, and
+  // taps pass through them to the core loop untouched.
+  // `coarse` (touch pointers): his body projects to ~23×29 CSS px at
+  // phone width — well under the 44px touch floor — so a miss falls
+  // back to a circle around his chest. The slop lives HERE in input
+  // land, not in hitBoxes(), which stays honest to the pixels.
+  // Trade-off accepted: on touch, a near-miss beside a standing Abe
+  // chats instead of placing a block — same shape as the documented
+  // first-in-chain risk, and a mis-chat is one Escape to undo.
+  const GOFER_TOUCH_SLOP = 22; // CSS px radius ≈ a 44px effective target
+  function hitTestGofer(sx, sy, coarse) {
+    const boxes = VH.gofer.hitBoxes();
+    if (!boxes) return null;
+    for (let i = 0; i < boxes.length; i++) {
+      for (const q of monumentFaceQuads(boxes[i])) {
+        if (E.pointInQuad(sx, sy, q[0], q[1], q[2], q[3])) return VH.gofer;
+      }
+    }
+    if (coarse) {
+      const a = VH.gofer.tapAnchor();
+      if (a && Math.hypot(sx - a.x, sy - a.y) <= GOFER_TOUCH_SLOP) return VH.gofer;
+    }
+    return null;
+  }
+
   // A monument move is allowed only onto fully free, on-platform cells
   // (its own current footprint counts as free — it vacates it).
   // A monument drag now resolves a landing HEIGHT as well as a shift, so
@@ -199,6 +229,7 @@
   // must never be what voids a block.
   E.onProjectionChange = () => {
     hoverPreview = null;
+    W.hoveredMonument = null; // stale after zoom/pan; next mousemove re-derives
     if (isDragging) updateHoverTarget();
     else hoverGrid = null;
   };
@@ -322,6 +353,7 @@
       W.blocks.push(dragBlock);
       if (E.reducedMotion && VH.sfx) VH.sfx.tock(dragBlock.gz, 0.6);
       W.notifyPlaced(dragBlock); // moving a block can complete a pattern
+      VH.gofer.noticePlacement(dragBlock.gx, dragBlock.gy);
       W.save();
     } else if (spawnDrag) {
       // Never placed: no put-back, no void drop, no save — the world is
@@ -388,6 +420,13 @@
   // So pickup is decided on movement, not on press.
   let pendingBlock = null;
 
+  // Pressing the gofer arms a TAP. It commits on pointerup only when the
+  // pointer never moved (!didDrag) and the gesture wasn't cancelled —
+  // the same "a tap, not a drag" contract every other interaction keeps.
+  // It can never coexist with pendingBlock/pendingMonument: a gofer hit
+  // short-circuits both at pointerdown.
+  let pendingGofer = false;
+
   // Monument dragging: press on a monument arms it; movement starts the
   // drag. The monument stays put (dimmed) while a ghost previews the
   // destination — red when the move is blocked; releasing there refuses
@@ -443,9 +482,25 @@
     pointerScreen = { ...p };
     didDrag = false;
 
-    const hit = hitTestBlock(p.x, p.y);
-    const monHit = hit ? null : hitTestMonument(p.x, p.y);
-    if (hit) { // ANY visible block is grabbable — pull one out of the
+    // The gofer goes FIRST. Accepted risk (plan §4): a surfaced gofer
+    // overlapping a block steals the grab. Rare — he only surfaces on
+    // empty tiles — and testing him last would make him untappable
+    // whenever he stands in front of anything.
+    const goferHit = hitTestGofer(p.x, p.y, e.pointerType === 'touch');
+    pendingGofer = !!goferHit;
+    const hit = goferHit ? null : hitTestBlock(p.x, p.y);
+    const monHit = (goferHit || hit) ? null : hitTestMonument(p.x, p.y);
+    if (goferHit) {
+      // He is a LINK, not a handle: nothing is picked up, and the press
+      // arms a tap that commits on pointerup. Rotation is armed too, so
+      // dragging THROUGH him still turns the world like any other drag —
+      // the tap only fires when the pointer never moved.
+      isRotating = true;
+      cam.cancelTween();
+      rotateStartAngle = cam.angle;
+      rotateStartX = p.x;
+      canvas.style.cursor = 'pointer';
+    } else if (hit) { // ANY visible block is grabbable — pull one out of the
                // middle and the tower above collapses (W.resettle)
       pendingBlock = hit;           // becomes a carry only if the pointer moves
       canvas.style.cursor = 'grab';
@@ -483,12 +538,22 @@
     if (e.pointerId !== activePointerId) {
       // Plain hover (mouse only): cursor + a gentle lift on the grabbable block
       if (activePointerId === null && e.pointerType === 'mouse') {
-        const hit = hitTestBlock(p.x, p.y);
+        // Same order as pointerdown, so what the cursor promises is
+        // exactly what the press will claim.
+        const goferHit = hitTestGofer(p.x, p.y);
+        const hit = goferHit ? null : hitTestBlock(p.x, p.y);
         // Any block is grabbable now; buried ones skip the lift (no room
         // to rise — world.js gates it) but still get the grab cursor.
-        const grabbable = hit || hitTestMonument(p.x, p.y);
-        canvas.style.cursor = grabbable ? 'grab' : 'default';
+        // Monuments get the same lift treatment (monuments.js eases it),
+        // so grabbable things all answer the cursor the same way.
+        const monHit = (goferHit || hit) ? null : hitTestMonument(p.x, p.y);
+        const grabbable = hit || monHit;
+        // POINTER, not grab: he is somewhere to go, not something to
+        // pick up, and the cursor is the whole desktop affordance for
+        // "he'll take a tap" in the moment he is standing.
+        canvas.style.cursor = goferHit ? 'pointer' : (grabbable ? 'grab' : 'default');
         W.hoveredBlock = hit || null;
+        W.hoveredMonument = monHit || null;
         // The quiet preview: where a tap would place a block. Same
         // resolver as the drag target and the tap commit, so the three
         // can never disagree. Mouse only — touch has no hover.
@@ -497,7 +562,7 @@
         // say so — so the placement ghost stands down. Showing both at
         // once answered a question the visitor wasn't asking and read as
         // clutter exactly when they were aiming to grab.
-        hoverPreview = grabbable ? null : resolveTarget(p.x, p.y);
+        hoverPreview = (goferHit || grabbable) ? null : resolveTarget(p.x, p.y);
       }
       return;
     }
@@ -514,6 +579,7 @@
       dragStartTime = clock.time;
       dragVelX = 0;
       W.hoveredBlock = null;
+      W.hoveredMonument = null;
       const vacated = { gx: dragBlock.gx, gy: dragBlock.gy, gz: dragBlock.gz };
       W.removeBlock(dragBlock);
       const knocked = W.resettle(true); // weight: anything that rested on
@@ -541,6 +607,7 @@
       dragMon = pendingMonument;
       pendingMonument = null;
       dragMon._dragging = true; // pushEntries dims it while it's held
+      W.hoveredMonument = null; // the drag owns it now; the lift eases home
       dragMonBase = E.toGrid(pointerDownPos.x, pointerDownPos.y);
       dragMonDelta = { dx: 0, dy: 0 };
       dragMonValid = true;
@@ -668,9 +735,11 @@
         W.blocks.push(placed);
         if (E.reducedMotion && VH.sfx) VH.sfx.tock(gz, 0.6);
         W.notifyPlaced(placed);
+        VH.gofer.noticePlacement(col.gx, col.gy);
         W.save();
       }
       W.hoveredBlock = null;
+      W.hoveredMonument = null;
       canvas.style.cursor = 'default';
       return;
     }
@@ -679,6 +748,20 @@
     if (isDragging && dragBlock) {
       releaseCarriedBlock(cancelled);
     } else if (isRotating) {
+      if (pendingGofer && !didDrag && !cancelled) {
+        // TAPPED ABE. Digging is searching, surfacing is "found
+        // something" — and this is the conversation. It used to
+        // navigate to the case study, which ripped the visitor out of
+        // the island they'd just been convinced to care about; now he
+        // TALKS (chat.js), and the case study is a link in his panel.
+        cam.angle = rotateStartAngle; // undo sub-threshold wiggle
+        isRotating = false;
+        pendingGofer = false;
+        canvas.style.cursor = 'default';
+        closeCodex(); // one panel at a time — they share the right edge
+        VH.chat.open();
+        return;
+      }
       if (!didDrag && !cancelled) {
         // Click/tap on the platform → place a block, via the SAME
         // resolver as the hover preview and the drag target (the old
@@ -692,6 +775,7 @@
           W.blocks.push(placed);
           if (E.reducedMotion && VH.sfx) VH.sfx.tock(target.gz, 0.6);
           W.notifyPlaced(placed);
+          VH.gofer.noticePlacement(target.gx, target.gy);
           W.save();
         }
         cam.angle = rotateStartAngle; // undo sub-threshold wiggle
@@ -706,7 +790,10 @@
       }
       isRotating = false;
     }
+    // Disarm: a drag through him, or a pinch/cancel, is not a tap.
+    pendingGofer = false;
     W.hoveredBlock = null;
+    W.hoveredMonument = null;
     canvas.style.cursor = 'default';
   }
 
@@ -786,6 +873,14 @@
   // Keyboard: quarter-turn rotation (reads as "game", helps accessibility)
   window.addEventListener('keydown', (e) => {
     const k = e.key;
+    // Typing in the chat panel must not drive the game — without this,
+    // writing "read" rotates the world twice and "1" swaps the hotbar.
+    // Escape still closes the chat (game.js stays the one keyboard
+    // authority), everything else belongs to the input.
+    if (e.target && e.target.closest && e.target.closest('#chat')) {
+      if (k === 'Escape' || k === 'Esc') VH.chat.close();
+      return;
+    }
     // Arrows match the drag: ArrowRight turns the world the way dragging right does
     if (k === 'ArrowLeft' || k === 'Left') {
       cam.rotateStep(1); if (VH.sfx) VH.sfx.uiTick('rotate'); e.preventDefault();
@@ -798,18 +893,51 @@
     else if (k >= '1' && k <= '4') {
       selectSlot(['color', 'grass', 'lamp', 'glass'][+k - 1]);
     }
-    else if (k === 'Escape' || k === 'Esc') { closeCodex(); } // hoisted; defined with the codex wiring
+    else if (k === 'Escape' || k === 'Esc') {
+      // Chat first, then codex — most recently opened thing closes first
+      if (VH.chat.isOpen()) VH.chat.close();
+      else closeCodex(); // hoisted; defined with the codex wiring
+    }
   });
 
-  // ── Clear / Fireworks ───────────────────────────────────────
+  // ── Clear / Fireworks — and Reset ───────────────────────────
   // Choreography: anticipation crouch → staggered ballistic launch (a
   // shockwave from the center) → each block detonates at its APEX into a
   // coloured particle burst + bloom. Monuments become debris and explode
   // too. The stage ends EMPTY — clicking places blocks, so it stays
   // playable — and DISCOVERIES persist forever (saved in v2).
-  document.getElementById('resetBtn').addEventListener('click', (e) => {
+  //
+  // ONE control, TWO states: while anything stands the button is Clear;
+  // on a bare island the same button reads Reset and replays the opening,
+  // so the world comes back with its ceremony instead of by appearing.
+  // The label, aria-label and title flip TOGETHER (one control changing
+  // meaning means the accessible name must change with the visible one).
+  const resetBtn = document.getElementById('resetBtn');
+  let resetBtnMode = null; // 'clear' | 'reset' — cached so the DOM is only touched on transitions
+  function updateResetBtn() {
+    const mode = (!W.blocks.length && !W.monuments.length) ? 'reset' : 'clear';
+    if (mode === resetBtnMode) return;
+    resetBtnMode = mode;
+    const word = mode === 'reset' ? 'Reset' : 'Clear';
+    // The SVG stays; only the text node after it carries the word.
+    resetBtn.lastChild.textContent = '\n      ' + word + '\n    ';
+    resetBtn.setAttribute('aria-label', word + ' the platform');
+    resetBtn.title = word + ' the platform';
+  }
+
+  resetBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (!W.blocks.length && !W.monuments.length) return; // nothing to clear
+    if (!W.blocks.length && !W.monuments.length) {
+      // Bare island: Reset. Replay the opening — runEntrance owns the
+      // whole show now, towers included: the tidy stacks land in the
+      // wave and transform with their ceremonies, so the restore IS a
+      // small show rather than an appearance. What the visitor
+      // DISCOVERED is never touched; Reset restores the world, not
+      // their memory of it.
+      runEntrance();
+      W.save();
+      return;
+    }
 
     // A reset mid-ceremony must not leave an orphaned ceremony drawing
     VH.monuments.clearCeremonies();
@@ -817,14 +945,21 @@
     // Monuments explode too: each substantial model piece becomes blast
     // debris that keeps its shape (the obelisk's gold tip bursts as its
     // own shell) — one shared policy with the void drop (monumentDebris).
+    // markDirty right here: occupancy is keyed off this array.
     W.monuments.forEach(mon => monumentDebris(mon).forEach(d => W.blocks.push(d)));
     W.monuments = [];
+    W.markDirty();
 
     // The launch itself lives in W.launchBlocks (shared with the ceremony's
-    // leftover sweep); the defaults ARE the Clear tuning.
+    // leftover sweep). delayJitter is the Clear's own note: shells rise in
+    // loose volleys over ~2s instead of one salvo — a fireworks SHOW
+    // (designer, 2026-08-31). The distance wave stays underneath so the
+    // show still blooms outward from the centre.
     W.launchBlocks(W.blocks, {
       cx: (W.GRID_MIN + W.GRID_MAX) / 2,
       cy: (W.GRID_MIN + W.GRID_MAX) / 2,
+      delayPerDist: 0.05,
+      delayJitter: 1.5,
     });
     const shellCount = W.blocks.length;
     if (E.reducedMotion) {
@@ -869,6 +1004,7 @@
   }
   function openCodex() {
     if (!codex.hidden) return;
+    VH.chat.close({ silent: true }); // one panel at a time — they share the right edge; the button already ticked
     // No rebuild here: the codex is built at boot and rebuilt on every
     // state change (onDiscovered, plan toggles, harness restores), so it
     // is always current while hidden. Rebuilding on open was a full DOM
@@ -965,6 +1101,7 @@
         isDragging = true;
         dragStartTime = clock.time;
         W.hoveredBlock = null;
+        W.hoveredMonument = null;
         canvas.style.cursor = 'grabbing';
       }
       updateHoverTarget(); // keeps the carried cube and its ghost in step
@@ -1348,6 +1485,10 @@
 
     cam.update(dt);
     W.updateBlocks(dt);
+    // The gofer updates BEFORE the frame's entries are built (unlike
+    // M.update, which deliberately runs after the draw) — otherwise
+    // his entry box and his pixels disagree within a frame.
+    VH.gofer.update(dt);
     E.updateFaceVectors();
     E.updateLightInfo();
     ctx.clearRect(0, 0, E.W, E.H);
@@ -1436,16 +1577,21 @@
     W.monuments.forEach(mon => {
       if (mon.pending) return; // mid-ceremony: pushShadowCasters owns it below
       const dim = mon._dragging ? 0.45 : 1; // match the dimmed drag look
+      // Hover lift: the shadow rides along, exactly as blocks fold b.lift
+      // into their shadow gz above — miss it and the monument rises off
+      // its own shadow.
+      const mLift = mon.lift || 0;
       mon.model.forEach(m => {
         if (!VH.monuments.castsShadow(m)) return; // ONE gate, shared with the ceremony pass
-        E.addShadowBox(m.gx, m.gy, m.gz, m.sxy, m.sz,
-          heightFade(m.gz + m.sz) * dim, dip, m.sy);
+        E.addShadowBox(m.gx, m.gy, m.gz + mLift, m.sxy, m.sz,
+          heightFade(m.gz + mLift + m.sz) * dim, dip, m.sy);
       });
     });
     // Ceremony shadows: floaters cast from their live rising positions and
     // the monument's pieces cast growing shadows as they pop in — no more
     // 2-second shadow hole + single-frame snap when a monument forms
     VH.monuments.pushShadowCasters(dip, heightFade);
+    VH.gofer.pushShadow(dip, heightFade);
     // The landing cell's shadow during a drag — the one depth cue a drag
     // otherwise LOSES (the carried block left W.blocks at pickup, so
     // nothing casts). One box at the future position; the composite is
@@ -1479,6 +1625,7 @@
       entries.push({ gx, gy, gz, sxy: b.baseSxy, sy: b.baseSxy, sz: b.baseSz, b });
     });
     VH.monuments.pushEntries(entries, dip);
+    VH.gofer.pushEntries(entries, dip);
     const drawOrder = VH.monuments.occlusionOrder(entries);
     // Warm ground pool under a near-miss arrangement — the peripheral
     // "where" signal the dog used to provide. One gradient, not one per
@@ -1605,6 +1752,11 @@
     // The one light pass: blur the collected lights, add them over the
     // scene. Leaves the context state clean (postcard export reads it).
     E.lightComposite();
+
+    // Clear ⇄ Reset rides the frame so EVERY path that fills or empties
+    // the board flips it (blast finishing, void falls, placements, load,
+    // harness restores) — cached mode means DOM writes only on transitions.
+    updateResetBtn();
 
     if (perfMon) perfMon.frame(__perfT0, nowMs);
     requestAnimationFrame(render);
@@ -1740,10 +1892,18 @@
       if (!ok) bad.push('floating monument (' + m.id + ') @ ' +
         m.cells[0].gx + ',' + m.cells[0].gy);
     });
-    if (bad.length) console.warn('[invariant]', bad.join(' | '));
     return bad;
   }
-  setInterval(() => checkInvariants(), 500);
+  // Warn on CHANGE, not on repeat: a persistent violation streaming a
+  // warn every 500ms retains thousands of console entries over a long
+  // #dev session and measurably slows the page with DevTools open.
+  // (The on-demand vh-dev-invariant report below still prints in full.)
+  let lastInvariantMsg = '';
+  setInterval(() => {
+    const msg = checkInvariants().join(' | ');
+    if (msg && msg !== lastInvariantMsg) console.warn('[invariant]', msg);
+    lastInvariantMsg = msg;
+  }, 500);
   document.addEventListener('vh-dev-invariant', () => {
     const bad = checkInvariants();
     console.log('[invariant]', bad.length ? bad : 'clean',
@@ -1872,8 +2032,12 @@
         M.update(1 / 60);
       }
     };
-    // 'blue' satisfies every '*' in play: plain (arc's plainOnly), not
-    // glass/lamp (obelisk's notColors), and same across a build (sameColor)
+    // 'green' satisfies every '*' in play: plain (arc's plainOnly), not
+    // glass/lamp (obelisk's notColors), same across a build (sameColor) —
+    // and NEUTRAL: no explicit recipe demands it. 'blue' stopped being
+    // neutral when the Prudential tower (a blue wall) shipped: a blue
+    // 2×3 arc now rightly DEFERS to a possible tower-in-progress, the
+    // same learned trap as a red arc before the torii is discovered.
     const orders = {
       'rows-ltr': (cells) => [...cells].sort((a, b) => a[2] - b[2] || a[1] - b[1] || a[0] - b[0]),
       'rows-rtl': (cells) => [...cells].sort((a, b) => a[2] - b[2] || a[1] - b[1] || b[0] - a[0]),
@@ -1900,7 +2064,7 @@
         for (let i = 0; i < seq.length; i++) {
           const c = seq[i];
           const b = W.makeBlock(c[0], c[1], c[2],
-            { color: c[3] === '*' ? 'blue' : c[3], dropOffset: 0.8 });
+            { color: c[3] === '*' ? 'green' : c[3], dropOffset: 0.8 });
           W.blocks.push(b);
           W.notifyPlaced(b);
           stepFrames(45); // fall + settle + match
@@ -2321,10 +2485,81 @@
     HERO_DROP: 20,    // grid units — starts above the frame, falls INTO it
     HERO_STOP: 0.09,  // hit-stop held on the moment of impact
     DIP: 1.2, SHAKE: 2.2, DUST: 14, SKY: 0.9,
+    // Act 3 — the payoff. The tidy stacks transform in career order;
+    // the second ceremony overlaps the tail of the first (one rising
+    // passage, not two events).
+    STACK_STEP: 0.045, // seconds between a tidy stack's blocks
+    STACK_SETTLE: 0.33,// fall allowance after the last stack block's release
+    T3_FIRST: 0.55,    // hero impact → Prudential's ceremony
+    T3_SECOND: 1.65,   // hero impact → BNY's (Prudential is mid-rise)
+    // Act 4 — the gofer. He sets out AFTER both ceremonies have finished
+    // (BNY's runs to impact+3.65) and after its card has cleared
+    // (showCard holds 2.8s from ceremony+0.7, so impact+5.15). The stage
+    // is empty and the island is built; only then does something move
+    // under the grass. His mound travels ~3.5 tiles before erupting, so
+    // he actually appears around impact+6.2s.
+    T3_GOFER: 4.6,
+    // Reduced motion runs act 3 on its own clock (BNY at 2.0s → its card
+    // clears at 5.5s) and his cameo has no travel to spend, so it waits
+    // longer and lands straight away.
+    T3_GOFER_RM: 5.8,
   };
 
   function runEntrance() {
     const span = W.GRID_MAX - W.GRID_MIN;
+    const M = VH.monuments;
+    // He waits underground through the whole opening and comes up in
+    // act 4. Standing here from frame one would both spoil the reveal
+    // and bury him under the wave.
+    VH.gofer.hideForEntrance();
+
+    // ── Act 1: the world arrives — and the towers were there all along.
+    // The two portfolio recipes land INSIDE the wave as conspicuously
+    // tidy stacks (the wall column by column, the block storey by
+    // storey), so the payoff transforms something the visitor WATCHED
+    // land — nothing appears from nowhere. A tower already standing, or
+    // one whose home ground is occupied, simply skips its stack: Reset
+    // on a board that kept one rebuilds only what is missing.
+    const towerPlans = [
+      { id: 'prudential', order: (a, b) => (a[0] - b[0]) || (a[2] - b[2]) },
+      { id: 'bny',        order: (a, b) => (a[2] - b[2]) || (a[1] - b[1]) || (a[0] - b[0]) },
+    ];
+    const avoid = new Set();
+    const finals = []; // per tower: the last-landing block — act 3 pokes it
+    let lastStackDelay = 0;
+    towerPlans.forEach((tp, ti) => {
+      const r = M.RECIPES.find(x => x.id === tp.id);
+      if (!r || !r.home) return;
+      if (W.monuments.some(m => m.id === r.id)) return;
+      const cells = r.cells.map(c => [r.home.ox + c[0], r.home.oy + c[1], c[2], c[3]]);
+      if (cells.some(c => W.getStackHeight(c[0], c[1]) > c[2])) return;
+      cells.sort(tp.order);
+      let last = null;
+      cells.forEach((c, i) => {
+        const delay = 0.15 + ti * 0.24 + i * ENT.STACK_STEP;
+        lastStackDelay = Math.max(lastStackDelay, delay);
+        last = W.makeBlock(c[0], c[1], c[2], {
+          color: c[3],
+          dropOffset: 6 + c[2] * 1.4,
+          dropDelay: delay,
+        });
+        W.blocks.push(last);
+        W.markDirty();
+      });
+      cells.forEach(c => avoid.add(c[0] + ',' + c[1]));
+      finals.push(last);
+    });
+    // Act 3's trigger runs through the REAL path — W.notifyPlaced on the
+    // stack's last block, exactly what a player's placement does — so
+    // the matcher, deferral, ceremony, card and the new hit-stop all
+    // come along for free. Guarded: if the visitor grabbed a stack block
+    // mid-opening (input is NEVER locked), the poke finds no pattern and
+    // quietly does nothing; the codex and Reset both still lead here.
+    const fireTower = (i) => {
+      const b = finals[i];
+      if (b && W.blocks.includes(b)) W.notifyPlaced(b);
+    };
+
     W.spawnBlocks(24, (gx, gy, gz) => {
       const d = (gx - W.GRID_MIN) + (gy - W.GRID_MIN); // Manhattan distance from the far corner
       const phrase = Math.min(3, Math.floor(d / (span / 2 + 0.01)));
@@ -2332,7 +2567,7 @@
         dropOffset: 6 + Math.random() * 2 + gz * 1.2,
         dropDelay: 0.15 + phrase * ENT.PHRASE + (Math.random() * 0.04 - 0.02),
       };
-    });
+    }, (gx, gy) => avoid.has(gx + ',' + gy));
     // The last block wants a CLEARING, not merely an empty tile: among 24
     // neighbours one more cube is invisible. Score every open tile by how
     // much empty grass surrounds it, biased toward the centre, so the
@@ -2353,9 +2588,22 @@
         if (score > best) { best = score; tile = [gx, gy]; }
       }
     }
-    if (!tile) return; // no open ground (can't happen with 24 blocks) — the wave alone will do
-    // Released after the wave has fully settled AND the pause has run.
-    const waveLands = 0.15 + 3 * ENT.PHRASE + 0.24;
+    // Released after the wave AND the tidy stacks have fully settled,
+    // then the pause — the stillness is the act break, so it must not
+    // start while a tower storey is still falling.
+    const waveLands = Math.max(0.15 + 3 * ENT.PHRASE + 0.24,
+                               lastStackDelay + ENT.STACK_SETTLE);
+    if (!tile) {
+      // No open ground for the hero (can't happen on a fresh board, but
+      // the act-3 payoff must not die with the beat): fire the towers on
+      // the clock instead.
+      setTimeout(() => fireTower(0), (waveLands + ENT.PAUSE + ENT.T3_FIRST) * 1000);
+      setTimeout(() => fireTower(1), (waveLands + ENT.PAUSE + ENT.T3_SECOND) * 1000);
+      // No hero tile to aim at, so he comes up near the middle instead.
+      setTimeout(() => VH.gofer.cameo(0, 0),
+        (waveLands + ENT.PAUSE + ENT.T3_GOFER) * 1000);
+      return;
+    }
     const hero = W.makeBlock(tile[0], tile[1], 0, {
       dropOffset: ENT.HERO_DROP,
       dropDelay: waveLands + ENT.PAUSE,
@@ -2373,7 +2621,22 @@
           VH.fx.spawnDust(tile[0], tile[1], 0, ENT.DUST);
           VH.fx.igniteStars(0.42, 0.08, 0.32, ENT.SKY);
         }
+        // ── Act 3, anchored to the impact the visitor just FELT:
+        // Prudential (2018) rises first, BNY (2021) into its tail — the
+        // career traced forward without a caption.
+        setTimeout(() => fireTower(0), ENT.T3_FIRST * 1000);
+        setTimeout(() => fireTower(1), ENT.T3_SECOND * 1000);
+        // ── Act 4: and something is still living here. He sets out
+        // toward the hero block — where the visitor is already looking.
+        setTimeout(() => VH.gofer.cameo(tile[0], tile[1]), ENT.T3_GOFER * 1000);
       };
+    } else {
+      // Reduced motion never enters the falling path, so there is no
+      // impact to anchor to — act 3 runs on the clock, and the
+      // ceremonies' own reduced-motion branches keep them gentle.
+      setTimeout(() => fireTower(0), 900);
+      setTimeout(() => fireTower(1), 2000);
+      setTimeout(() => VH.gofer.cameo(tile[0], tile[1]), ENT.T3_GOFER_RM * 1000);
     }
     W.blocks.push(hero);
     W.markDirty();
@@ -2386,6 +2649,12 @@
   if (location.hash === '#replay') localStorage.removeItem('vh-build-v1');
   // Restore the visitor's saved build; fresh visitors get the entrance.
   const firstVisit = !W.load();
+  // The RETURNING visitor whose save predates the towers gets them
+  // planted quietly at home (never over their build, never a tower they
+  // deliberately destroyed — plantHomes owns those rules). Fresh
+  // visitors skip this entirely: their towers arrive inside the opening
+  // as tidy stacks that transform on screen.
+  if (!firstVisit) VH.monuments.plantHomes();
   if (firstVisit) {
     runEntrance();
     W.save();

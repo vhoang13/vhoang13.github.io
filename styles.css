@@ -124,7 +124,7 @@ body {
 
 /* A pinch that starts on the overlays must not zoom the PAGE (iOS
    Safari); manipulation keeps taps working and kills double-tap zoom */
-.panel, .controls, .panel-pill { touch-action: manipulation; }
+.panel, .controls, .panel-pill, .chat { touch-action: manipulation; }
 
 .panel-header {
   margin-bottom: 0.75rem;
@@ -175,14 +175,21 @@ body {
   margin-bottom: 0.75rem;
 }
 
+/* Wraps because there are three links now, and the panel is capped at 260px:
+   without it "Say hello" breaks across two lines inside its own button. */
 .panel-links {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
 .link-btn {
   display: inline-flex;
   align-items: center;
+  /* Hold each label on one line and let .panel-links wrap instead. Without
+     these, three buttons in a 260px panel shrink until "Say hello" breaks. */
+  white-space: nowrap;
+  flex-shrink: 0;
   padding: 0.45rem 0.9rem;
   font-size: 0.75rem;
   font-weight: 500;
@@ -193,12 +200,16 @@ body {
   transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
 }
 
-.link-btn:first-child {
+/* Explicit class, not :first-child. The accent used to be positional, which
+   meant document order silently decided the primary action — and .link-btn
+   has no background of its own, so anything displaced from first position
+   rendered as bare text rather than as a ghost button. */
+.link-btn--primary {
   background: var(--color-accent);
   color: #1a1a2e;
 }
 
-.link-btn:first-child:hover {
+.link-btn--primary:hover {
   background: #8ee968;
   transform: translateY(-1px);
 }
@@ -527,15 +538,21 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
   margin-top: 0.15rem;
 }
 
-/* Found: a small gold pill beside the name (the hint stays — it's the
-   how-to-rebuild reference) */
+/* Discovered: a small gold pill beside the name (the hint stays — it's
+   the how-to-rebuild reference). Tracking/padding/size are tuned for the
+   longer word: the looser values that suited "FOUND" pushed FOUR of the
+   fifteen rows onto a second line; these leave only "The Hanging
+   Gardens" (the longest name, 2.9px over) wrapping, which reads fine.
+   Don't shave further — measured, the next notch buys no rows back and
+   only crowds an already-8px pill. */
 .codex-found {
   display: inline-block;
-  margin-left: 0.45rem;
-  padding: 0.06rem 0.42rem;
-  font-size: 0.56rem;
+  margin-left: 0.32rem;
+  padding: 0.06rem 0.24rem;
+  font-size: 0.5rem;
   font-weight: 700;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
   text-transform: uppercase;
   color: #ffd968;
   background: rgba(255, 217, 104, 0.12);
@@ -551,6 +568,231 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
 }
 
 /* ============================================
+   Chat with Abe
+   Codex's sibling: same surface, same entrance, same non-modal
+   contract. Green (action) header, not gold — gold stays reserved
+   for discovery.
+   ============================================ */
+.chat[hidden] { display: none; } /* author display beats the hidden attr otherwise */
+
+.chat {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 16;
+  width: 340px;
+  max-height: min(520px, calc(100vh - 7rem));
+  display: flex;
+  flex-direction: column;
+  background: rgba(26, 26, 46, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  overflow: hidden;
+  animation: chat-in 0.45s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+@keyframes chat-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem 1rem 0.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* The portrait ships its own painted double-frame (part of the art),
+   so no CSS border — just a whisper of rounding so the frame's hard
+   corners sit comfortably on the panel radius. */
+.chat-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.chat-title {
+  font-family: var(--font-pixel);
+  font-size: 0.7rem;
+  color: var(--color-accent);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.chat-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--color-text-dim);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.1rem;
+}
+
+.chat-close:hover { color: var(--color-text); }
+
+.chat-log {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 0.75rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.chat-msg {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  max-width: 88%;
+  white-space: pre-wrap; /* model output may contain deliberate breaks */
+}
+
+.chat-msg--abe {
+  align-self: flex-start;
+  color: var(--color-text);
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+/* The mini portrait riding each of Abe's lines — same art as the
+   header, just smaller; its painted frame does the border work. */
+.chat-msg-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  margin-top: 1px; /* optically align the frame with the first text line */
+}
+
+.chat-msg-text { white-space: pre-wrap; }
+
+.chat-msg--you {
+  align-self: flex-end;
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 0.4rem 0.6rem;
+}
+
+/* "Abe is digging…" — three little mounds working the earth */
+.chat-digging { color: var(--color-text-dim); }
+
+.chat-dots { display: inline-block; margin-left: 0.15rem; }
+
+.chat-dots i {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin-left: 3px;
+  border-radius: 50%;
+  background: var(--color-text-dim);
+  animation: chat-dig 1s ease-in-out infinite;
+}
+.chat-dots i:nth-child(2) { animation-delay: 0.15s; }
+.chat-dots i:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes chat-dig {
+  0%, 60%, 100% { transform: none; }
+  30%           { transform: translateY(-3px); }
+}
+
+.chat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.25rem 0.9rem 0.5rem;
+}
+
+/* All chips spent → the row is empty; don't keep its padding as a
+   dead stripe between the log and the input */
+.chat-chips:empty { display: none; }
+
+.chat-chip {
+  font: inherit;
+  font-size: 0.68rem;
+  color: var(--color-text);
+  background: rgba(125, 217, 86, 0.08);
+  border: 1px solid rgba(125, 217, 86, 0.3);
+  border-radius: 999px;
+  padding: 0.32rem 0.7rem;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.chat-chip:hover,
+.chat-chip:focus-visible {
+  background: rgba(125, 217, 86, 0.16);
+  border-color: rgba(125, 217, 86, 0.55);
+}
+
+.chat-chip:active { transform: scale(0.96); }
+
+.chat-form {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 1rem; /* ≥16px so iOS doesn't zoom the page into the field */
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9px;
+  padding: 0.45rem 0.65rem;
+}
+
+.chat-input::placeholder { color: var(--color-text-dim); }
+
+.chat-input:focus-visible {
+  outline: none;
+  border-color: rgba(125, 217, 86, 0.55);
+}
+
+.chat-input:disabled { opacity: 0.5; }
+
+.chat-send {
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--color-accent);
+  background: rgba(125, 217, 86, 0.1);
+  border: 1px solid rgba(125, 217, 86, 0.35);
+  border-radius: 9px;
+  padding: 0 0.7rem;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.chat-send:hover:not(:disabled) { background: rgba(125, 217, 86, 0.2); }
+.chat-send:disabled { opacity: 0.4; cursor: default; }
+
+.chat-foot {
+  font-size: 0.6rem;
+  color: var(--color-text-dim);
+  padding: 0 0.9rem 0.6rem;
+}
+
+.chat-foot a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.chat-foot a:hover { text-decoration: underline; }
+
+/* ============================================
    Monument discovery card
    ============================================ */
 .monument-card {
@@ -562,6 +804,13 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
   text-align: center;
   pointer-events: none;
   opacity: 0;
+  /* Long titles must survive a phone: size to content, cap short of the
+     viewport, and let both lines wrap. Without the cap, BANK OF NEW YORK
+     (373px in this pixel font) runs off a 390px screen. width is
+     max-content, not auto — a fixed element at left:50% otherwise
+     shrink-wraps against HALF the viewport. */
+  width: max-content;
+  max-width: min(92vw, 30rem);
   transition: opacity 0.45s cubic-bezier(0.25, 1, 0.5, 1),
               transform 0.45s cubic-bezier(0.34, 1.4, 0.64, 1);
 }
@@ -575,6 +824,8 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
   font-family: var(--font-pixel);
   font-size: 1.35rem;
   letter-spacing: 0.08em;
+  line-height: 1.3; /* the pixel font's default leading gaps wrapped lines */
+  text-wrap: balance; /* a two-line title splits evenly, not 90/10 */
   color: #ffd968;
   text-shadow: 0 0 18px rgba(255, 217, 104, 0.55),
                0 2px 0 rgba(0, 0, 0, 0.6);
@@ -585,6 +836,8 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
   font-family: var(--font-pixel);
   font-size: 0.55rem;
   letter-spacing: 0.2em;
+  line-height: 1.7; /* wrapped role · years lines need air at 9px */
+  text-wrap: balance; /* keeps a wrap from splitting the year range */
   text-transform: uppercase;
   color: var(--color-text-dim);
 }
@@ -691,6 +944,9 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
   }
   .codex { animation: none; }
   .codex-plan { animation: none; }
+  .chat { animation: none; }
+  .chat-dots i { animation: none; } /* the dig dots hold still — the text says it */
+  .chat-chip:active { transform: none; }
 }
 
 /* ============================================
@@ -712,6 +968,11 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
 
   .panel-desc { display: none; } /* keep the platform visible on small screens */
 
+  /* Three links do not fit a 185px panel: even wrapped they stack three
+     rows deep. LinkedIn is the least urgent of the three and is still in
+     the footer of every case study. Same call as .panel-desc above. */
+  .link-btn--optional { display: none; }
+
   .controls {
     top: 1rem;
     right: 1rem;
@@ -728,6 +989,17 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
     right: 1rem;
     width: min(300px, calc(100vw - 2rem));
     max-height: min(560px, calc(100vh - 11rem)); /* stay clear of the hotbar */
+  }
+
+  /* Chat becomes a bottom sheet. dvh, not vh: when the iOS keyboard
+     rises the dynamic viewport shrinks with it, so the input stays
+     visible instead of hiding under the keyboard. */
+  .chat {
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    width: auto;
+    max-height: 65dvh;
   }
 
   .hotbar {

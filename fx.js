@@ -308,6 +308,10 @@
   }
 
   FX.spawnDust = (gx, gy, gz, count) => {
+    // Same cap the other spawners honour — a mass landing (entrance
+    // wave, Clear cascade) stacked on a barrage must not blow past the
+    // pool's hard bound (review find WR-05).
+    count = Math.min(count, MAX_PARTICLES - dust.length);
     for (let i = 0; i < count; i++) {
       const ang = Math.random() * Math.PI * 2;
       const speed = 1.2 + Math.random() * 2.0; // grid units / s outward
@@ -321,6 +325,78 @@
         life: 0.45 + Math.random() * 0.2,
         age: 0,
         size: 1.5 + Math.random() * 2,
+      });
+    }
+  };
+
+  // Thrown EARTH — the eruption when the gofer breaks the surface, and
+  // the smaller spray when he dives. Deliberately not spawnDust: dust is
+  // a pale puff that fades in mid-air, and dirt is heavy stuff that
+  // arcs, lands and rests. Differences that carry the read:
+  //  · THREE discrete size classes in a 3:6:9 ratio (big clods rare).
+  //    Continuous random sizes read as mush; graded sizes read as
+  //    material that broke apart.
+  //  · Speed biased LOW (pow 1.6) — most clods barely clear the hole,
+  //    a few outliers fly. Uniform random looks mechanical.
+  //  · An UPWARD CONE, not a sphere: a sphere is an explosion, a narrow
+  //    jet is a geyser, ~40° is something pushing up through a surface.
+  //    The cone tilts along his travel so the spray carries his momentum.
+  //  · They land, brake and rest (fric), and the heaviest class gets ONE
+  //    small bounce — every particle bouncing reads as rubber.
+  const SOIL_TONES = ['94,75,47', '117,90,51', '139,107,61', '105,78,46', '78,62,38'];
+  FX.spawnSoil = (gx, gy, gz, count, opts = {}) => {
+    if (E.reducedMotion) return;
+    // Soil gets headroom ABOVE the shared cap: it is the cheapest thing
+    // in the pool (short-lived, no glow, no light, no trail), and the
+    // one moment it exists for — the gofer erupting — can coincide with
+    // a firework barrage that has the pool pinned at MAX.
+    const room = (MAX_PARTICLES + 48) - dust.length;
+    if (room <= 0) return;
+    count = Math.min(count, room);
+    const half = (opts.cone || 42) * Math.PI / 180;   // cone half-angle
+    const up = opts.up !== undefined ? opts.up : 4.6; // vertical launch
+    const out = opts.out !== undefined ? opts.out : 3.2;
+    const dx = opts.dx || 0, dy = opts.dy || 0;       // travel-direction tilt
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      // Low-biased radius inside the cone: most clods barely clear the
+      // hole, a few outliers fly. Uniform random looks mechanical.
+      const r = Math.pow(Math.random(), 1.6);
+      const horiz = Math.tan(half) * r;
+      // Weighted 3:6:9 — big clods RARE, and randomly placed, so no two
+      // eruptions throw the same clods in the same slots. opts.fine
+      // skips the heavy class entirely: the gofer's travel-shed crumbs
+      // come off a ~30px mound, and a 3px clod there is a calving
+      // boulder, not a crumb.
+      const roll = Math.random();
+      const cls = opts.fine ? (roll < 0.5 ? 1 : 2)
+                : (roll < 0.17 ? 0 : roll < 0.5 ? 1 : 2);
+      const size = cls === 0 ? 2.6 + Math.random() * 0.9
+                 : cls === 1 ? 1.8 + Math.random() * 0.7
+                 : 1.1 + Math.random() * 0.6;
+      const heavy = cls === 0;
+      const sp = out * (heavy ? 0.7 : 1);
+      dust.push({
+        px: gx + (Math.random() - 0.5) * 0.3,
+        py: gy + (Math.random() - 0.5) * 0.3,
+        pz: gz + 0.05,
+        vx: Math.cos(ang) * horiz * sp + dx * 1.1,
+        vy: Math.sin(ang) * horiz * sp + dy * 1.1,
+        vz: up * (heavy ? 0.78 : 1) * (0.75 + Math.random() * 0.5),
+        // Short: particles draw AFTER the depth sort, on top of the
+        // world, so the whole physics beat must finish before he is
+        // tall — long-resting clods would paint over his belly.
+        // opts.life/lifeSpan/rest override the eruption tuning for the
+        // travel-shed crumbs, which must be gone even faster or they
+        // carpet the trail.
+        life: (opts.life !== undefined ? opts.life : 0.55) +
+              Math.random() * (opts.lifeSpan !== undefined ? opts.lifeSpan : 0.35),
+        age: 0,
+        size,
+        grav: 16, fadePow: 0.6, a0: 0.95,
+        col: SOIL_TONES[(Math.random() * SOIL_TONES.length) | 0],
+        fric: 9, bounce: heavy ? 0.3 : 0,
+        restT: opts.rest,
       });
     }
   };
@@ -384,6 +460,22 @@
       p.vz -= (p.grav !== undefined ? p.grav : 6) * dt;
       const nz = p.pz + p.vz * dt;
       p.pz = p.floor === false ? nz : Math.max(0, nz);
+      // Contact: thrown EARTH lands and stays. Opt-in via p.fric so
+      // existing dust and firework sparks are untouched. Without this a
+      // clod keeps sliding along the ground at its launch speed, which
+      // reads as skidding litter; dirt has no bounce left after one.
+      if (p.fric && p.pz <= 0) {
+        p.pz = 0;
+        if (p.vz < 0) { p.vz = p.bounce ? -p.vz * p.bounce : 0; p.bounce = 0; }
+        const k = Math.max(0, 1 - p.fric * dt);
+        p.vx *= k; p.vy *= k;
+        // A landed clod rests only briefly: it draws over the sorted
+        // world, so it must be gone before anything tall stands beside it
+        if (!p.rested) {
+          p.rested = 1;
+          p.life = Math.min(p.life, p.age + (p.restT !== undefined ? p.restT : 0.3));
+        }
+      }
       // fadePow < 1 holds brightness longer, then lets go (embers); dust
       // keeps the plain linear fade
       let fade = 1 - p.age / p.life;

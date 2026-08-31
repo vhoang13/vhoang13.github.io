@@ -183,8 +183,91 @@
         buses[name] = { in: inp, duck };
       });
 
+      loadSamples(); // Abe's foley decodes alongside the graph build
     }
     return actx;
+  }
+
+  // ── Samples — Abe's foley (the nessfx 8-bit pack) ──────────────
+  // The island's voice is synthesized; Abe's is SAMPLED. Viet's call:
+  // the chat went RPG-dialog-box, so his foley goes chiptune — tiny
+  // mono wavs from the nessfx FamiTracker pack, played through the
+  // same bus/pan/reverb plumbing as every synthesized voice, so they
+  // sit in the same room. Decoding rides the graph build; a missing
+  // or failed file simply leaves that cue silent — samples can never
+  // break the synth.
+  const SAMPLE_URLS = {
+    dig1: 'sfx/dig1.wav',       // nessfx 21_walk1 — alternating paw scuffs
+    dig2: 'sfx/dig2.wav',       // nessfx 22_walk2 —  under the moving mound
+    blip: 'sfx/blip.wav',       // nessfx 31_text  — Abe's dialog blip
+    knock: 'sfx/knock.wav',     // nessfx 67_knock — Abe diving into the ground
+    drink: 'sfx/drink.wav',     // nessfx 66_drink — Abe popping back out
+    explode: 'sfx/explode.wav', // nessfx 69_explode — the Clear's shell crack
+    fall: 'sfx/fall.wav',       // nessfx 56_fall — anything lost off the platform
+  };
+  const BUFS = {};
+  // Normalize each decoded file to a 1.0 peak — the same treatment
+  // makeIR gives the reverb. The nessfx wavs are QUIET recordings
+  // (dig1 peaks at 0.26 of full scale), so without this a cue's
+  // `peak` option silently means a quarter of what it says, and the
+  // first wired steps were ~15× under a tock: technically playing,
+  // practically inaudible. After this, `peak` on a sample means
+  // exactly what it means on a tone.
+  function normalizeBuf(buf) {
+    let peak = 0;
+    for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+    }
+    const s = 1 / (peak || 1);
+    for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < d.length; i++) d[i] *= s;
+    }
+    return buf;
+  }
+  let samplesRequested = false;
+  function loadSamples() {
+    if (samplesRequested) return;
+    samplesRequested = true;
+    for (const [key, url] of Object.entries(SAMPLE_URLS)) {
+      fetch(url)
+        .then(r => (r.ok ? r.arrayBuffer() : Promise.reject()))
+        .then(ab => actx.decodeAudioData(ab))
+        .then(buf => { BUFS[key] = normalizeBuf(buf); })
+        .catch(() => {});
+    }
+  }
+
+  // Sample voice in the house idiom: rate jitter is the anti-machine-
+  // gun move (samples repeat EXACTLY, unlike synth voices, so without
+  // it every step is a photocopy), the 3ms fade-in guards the start
+  // click, and lp darkens a source that should read as distant or
+  // buried. The sample owns its own tail.
+  function sample(t0, key, o) {
+    const buf = BUFS[key];
+    if (!buf || activeVoices >= MAX_VOICES) return null;
+    const src = actx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = (o.rate || 1) * R(o.jitter != null ? o.jitter : 0);
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(o.peak || 0.2, t0 + 0.003);
+    let head = src;
+    if (o.lp) {
+      const lp = actx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(o.lp, t0);
+      if (o.lpTo) { // same "distance" ramp the noise voice owns
+        lp.frequency.exponentialRampToValueAtTime(o.lpTo, t0 + (o.lpGlide || 0.5));
+      }
+      src.connect(lp); head = lp;
+    }
+    head.connect(g);
+    wire(g, t0, o);
+    countVoice(src);
+    src.start(t0);
+    return { src, g };
   }
 
   // Has the visitor EVER interacted? Pre-activation, audio can never be
@@ -507,6 +590,74 @@
       peak: k.peak, atk: 0.004, dec: k.dec, bus: 'ui', jitter: 0.05 });
   };
 
+  // ── Abe's dig — paw scuffs under the travelling mound ──────────
+  // Alternating samples + rate jitter so no two steps match. Played
+  // SLOW (0.82) and lowpassed hard because he is UNDER the turf: the
+  // sound must read as through-the-ground, not footsteps on it.
+  // Panned to the mound like any world sound.
+  let digFoot = 0;
+  S.goferStep = (at) => {
+    if (!ensure()) return;
+    sample(actx.currentTime, (digFoot++ & 1) ? 'dig2' : 'dig1', {
+      peak: 0.20, rate: 0.82, jitter: 0.06, lp: 1500,
+      bus: 'impact', send: 0.10, pan: panOf(at),
+    });
+  };
+
+  // ── Abe's dialog blip — the RPG text-box sound, once per line he
+  // says in the chat. UI bus, centred: it is chrome, not world.
+  S.chatBlip = () => {
+    if (!ensure()) return;
+    sample(actx.currentTime, 'blip', {
+      peak: 0.16, jitter: 0.03, bus: 'ui', send: 0.05,
+    });
+  };
+
+  // ── Abe's dive — the knock, pitched down and muffled: a thump felt
+  // through the turf as he punches into it.
+  S.goferDuck = (at) => {
+    if (!ensure()) return;
+    sample(actx.currentTime, 'knock', {
+      peak: 0.22, rate: 0.85, jitter: 0.05, lp: 2200,
+      bus: 'impact', send: 0.15, pan: panOf(at),
+    });
+  };
+
+  // ── Abe's eruption — the drink, full and bright: the cork-pop of a
+  // gopher clearing the surface. No lowpass: he is OUT of the ground.
+  S.goferPop = (at) => {
+    if (!ensure()) return;
+    sample(actx.currentTime, 'drink', {
+      peak: 0.26, jitter: 0.05,
+      bus: 'impact', send: 0.20, pan: panOf(at),
+    });
+  };
+
+  // ── #dev audition hook — play any wav under site/ by url, so sound
+  // choices are made by EAR on the live island, not by file name:
+  //   document.dispatchEvent(new CustomEvent('vh-dev-sample',
+  //     { detail: { url: 'sfx/audition/47_grass.wav', rate: 1, peak: 0.2, lp: 0 } }))
+  if (location.hash === '#dev') {
+    document.addEventListener('vh-dev-sample', async (e) => {
+      const d = e.detail || {};
+      if (!d.url) { console.log('[dev-sample] need {url}'); return; }
+      if (!ensure()) { console.log('[dev-sample] audio locked — click the page once, and check the mute button'); return; }
+      if (!BUFS[d.url]) {
+        try {
+          BUFS[d.url] = normalizeBuf(
+            await actx.decodeAudioData(await (await fetch(d.url)).arrayBuffer()));
+        } catch { console.log('[dev-sample] could not load', d.url); return; }
+      }
+      sample(actx.currentTime, d.url, {
+        peak: d.peak != null ? d.peak : 0.2, rate: d.rate || 1,
+        jitter: 0, lp: d.lp || 0, bus: 'impact',
+        send: d.send != null ? d.send : 0.1,
+      });
+      console.log('[dev-sample] played', d.url,
+        'rate', d.rate || 1, 'peak', d.peak != null ? d.peak : 0.2, 'lp', d.lp || 0);
+    });
+  }
+
   // ── "Whoomp" — now the Clear anticipation thump only (the off-platform
   // drop has its own cue). Retuned shorter and lower: a crouch, not a blast.
   S.whoomp = () => {
@@ -536,13 +687,19 @@
   function boomFull(t, size, pan, o = {}) {
     const mul = o.mul || 1;
     const send = o.send;
-    // Crack — wide jitter here reads as DIFFERENT SHELLS, not detuning.
-    // Deliberately NOT sharpened (user decision): a whip-crack transient
-    // would read as harsh in a calm game.
+    // Crack — the report now speaks nessfx (Viet's call: "use explode
+    // for the Clear"): the 8-bit shell crack, rate-jittered wide so it
+    // reads as DIFFERENT SHELLS, with the synth body + sub below still
+    // carrying the weight. Falls back to the old synth crack until the
+    // sample decodes, so the first Clear of a session never goes thin.
     if (!o.noCrack) {
-      noise(t, { type: 'bandpass', Q: 0.9, f0: 1800 / size, f1: 400, glide: 0.15,
-        peak: 0.28 * size * mul, atk: 0.0012, dec: 0.18, bus: 'blast',
-        pan, jitter: 0.12, lvlJitter: 0.12, send });
+      const s = sample(t, 'explode', { peak: 0.30 * size * mul, jitter: 0.15,
+        bus: 'blast', pan, send });
+      if (!s) {
+        noise(t, { type: 'bandpass', Q: 0.9, f0: 1800 / size, f1: 400, glide: 0.15,
+          peak: 0.28 * size * mul, atk: 0.0012, dec: 0.18, bus: 'blast',
+          pan, jitter: 0.12, lvlJitter: 0.12, send });
+      }
     }
     // Body — pulled back slightly (0.22 → 0.18) so the sub below carries
     // the weight instead of the mids
@@ -648,7 +805,12 @@
     let heroBudget = Math.min(2, Math.max(0, 6 - heroTimes.length));
 
     for (const b of shells) {
-      const forced = b.size >= 1.3;               // the finale can never be dropped
+      // Strict >: ordinary shells clamp to exactly 1.3 (world.js/game.js),
+      // and the finale doesn't come through here at all — S.finalBoom
+      // calls boomFull directly. At >=, every max-height Clear shell
+      // skipped the hero budget AND polluted heroTimes, starving the
+      // shells the budget was tuned for.
+      const forced = b.size > 1.3;
       const capOk = !inBarrage || barrage.heroUsed < barrage.heroCap;
       if (forced || (heroBudget > 0 && capOk)) {
         boomFull(t + Rn(0, inBarrage ? 0.045 : 0.008), b.size, panOf(b.at, 1.4),
@@ -677,7 +839,10 @@
     if (!ensure()) return;
     const t = actx.currentTime;
     barrage = {
-      until: t + 3,
+      // 4.5s, not 3: the Clear's delayJitter now spreads launches over
+      // ~2s, so late shells still detonate inside the barrage window
+      // (outside it they'd all claim hero booms — the machine-gun).
+      until: t + 4.5,
       heroCap: clamp(Math.round(n * 0.25), 2, 10),  // a 6-block board: EVERY shell is a hero
       heroUsed: 0,
     };
@@ -873,18 +1038,27 @@
     }
 
     // The fall: 1–3 staggered layers (a big monument is a loose group,
-    // not one object). Each is a noise band riding the fall curve with
-    // "distance" built from the two ramps the primitives own: the dry
-    // darkens (lp 6000→700) while the reverb send opens (0.25→0.85) —
-    // the further it falls, the more it is only room. Plus the mass.
+    // not one object). The descent now speaks nessfx (Viet's call) —
+    // the 8-bit falling whistle, rate-jittered per layer so a monument
+    // is three slightly detuned falls — riding the same "distance"
+    // ramps the synth version owned: the dry darkens (lp 6000→700)
+    // while the reverb send opens (0.25→0.85), so the further it
+    // falls, the more it is only room. The low sine stays underneath
+    // for weight; the old noise band is the fallback until the sample
+    // decodes.
     const layerCount = mass > 1 ? 3 : 1;
     const bodyF = 180 / (1 + 0.35 * Math.log2(mass));
     for (let i = 0; i < layerCount; i++) {
       const tL = t + [0, 0.07, 0.145][i];
-      noise(tL, { type: 'bandpass', Q: 1.4, f0: 900, f1: 190, glide: 1.1,
-        peak: 0.13, lvlJitter: 0, atk: 0.2, hold: 0.35, dec: 0.6,
+      const s = sample(tL, 'fall', { peak: 0.16, jitter: 0.07,
         lp: 6000, lpTo: 700, lpGlide: 1.1,
         bus: 'impact', pan, send: 0.25, sendTo: 0.85, sendGlide: 1.1 });
+      if (!s) {
+        noise(tL, { type: 'bandpass', Q: 1.4, f0: 900, f1: 190, glide: 1.1,
+          peak: 0.13, lvlJitter: 0, atk: 0.2, hold: 0.35, dec: 0.6,
+          lp: 6000, lpTo: 700, lpGlide: 1.1,
+          bus: 'impact', pan, send: 0.25, sendTo: 0.85, sendGlide: 1.1 });
+      }
       tone(tL, { type: 'sine', f0: bodyF * R(0.06), f1: 42, glide: 1.05,
         peak: 0.09, atk: 0.02, dec: 1.05, bus: 'impact', pan, jitter: 0.04 });
     }

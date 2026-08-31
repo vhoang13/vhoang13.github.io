@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gofer · Viet Hoang</title>
+  <meta name="description" content="Founding designer on a consumer iOS app, who also built it. The Taste Tab, a SwiftUI design system, and what shipping across three codebases actually taught me.">
+  <meta name="theme-color" content="#1a1a2e">
+  <link rel="canonical" href="https://vietnhoang.com/work/gofer/">
+
+  <!-- Social preview. This page's job is to be pasted into a LinkedIn
+       message, an application form, and a recruiter's email. Without these
+       it unfurls as a bare grey link. -->
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Gofer: a social wishlist that learns what you and your friends love.">
+  <meta property="og:description" content="I ran design for wealth at BNY. I left to be the founding designer on a consumer app, and the job turned out to be building the whole thing.">
+  <meta property="og:url" content="https://vietnhoang.com/work/gofer/">
+  <meta property="og:site_name" content="Viet Hoang">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Gofer: a social wishlist that learns what you and your friends love.">
+  <meta name="twitter:description" content="I ran design for wealth at BNY. I left to be the founding designer on a consumer app, and the job turned out to be building the whole thing.">
+  <!-- TODO og:image — needs a 1200x630 card. Render one from the island.
+       Until it exists the unfurl shows title + description but no picture. -->
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400..600;1,7..72,400..500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../case-study.css">
+</head>
+<body>
+
+  <a class="skip" href="#main">Skip to content</a>
+
+  <nav class="topbar">
+    <a class="back" href="../">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M10 3 5 8l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      All work
+    </a>
+    <a class="topbar-home" href="../../">Viet Hoang</a>
+  </nav>
+
+  <main id="main">
+
+    <!-- Hero: the whole story in miniature, before any narrative.
+         A recruiter landing here directly must not read seven sections
+         to learn what Gofer is or what he actually did. -->
+    <header class="hero wrap">
+      <p class="eyebrow">Founding designer &amp; design engineer · 2025&ndash;2026</p>
+      <h1>Gofer: a social wishlist that learns what you and your friends love.</h1>
+      <p class="standfirst">
+        I ran design for wealth at BNY. I left to be the founding designer on a
+        consumer app, and the job turned out to be building the whole thing.
+      </p>
+
+      <dl class="facts">
+        <div>
+          <dt>Role</dt>
+          <dd>Founding designer. I also wrote the iOS app, the backend, and the marketing site.</dd>
+        </div>
+        <div>
+          <dt>Before this</dt>
+          <dd>Head of Design for Wealth at BNY. Six designers, regulated software, four years.</dd>
+        </div>
+        <div>
+          <dt>Shipped</dt>
+          <dd>An iOS app, shipped through TestFlight beta to the App Store, with real users. Plus a live marketing site.</dd>
+        </div>
+        <div>
+          <dt>Built with</dt>
+          <dd>SwiftUI · Python and FastAPI · PostHog · AI coding agents, reviewed on device.</dd>
+        </div>
+      </dl>
+    </header>
+
+    <section class="wrap">
+      <p>
+        Gofer is a consumer iOS app. You save products you want, you see what the people
+        you trust are into, and it gets sharper about your taste the more you use it.
+      </p>
+      <p>
+        I built it. The iOS app, a Python backend, a SwiftUI design system, and the
+        marketing site are all work I shipped, most of it by directing AI coding agents
+        and checking every change myself.
+      </p>
+    </section>
+
+    <section class="wrap">
+      <h2>The problem and the bet</h2>
+      <p>
+        People find products everywhere. Instagram, a store window, a friend's text,
+        a screenshot they will never see again. Two things are broken at once: saving
+        is a mess, and trust is thin. Most recommendations come from an algorithm or a
+        paid influencer, not from the people you actually believe.
+      </p>
+      <p>That was the bet: a save button you trust, made social, that learns.</p>
+    </section>
+
+    <section class="wrap">
+      <h2>Three lessons, one direction</h2>
+      <p>
+        The product went through three shapes before it found the right one. From the
+        outside it can read like three pivots. Up close it was three lessons pointing
+        the same way.
+      </p>
+
+      <h3>Start: social discovery</h3>
+      <p>
+        Show people the products their friends love. They liked seeing it. Then they
+        kept trying to save it. The real signal was not "show me more," it was
+        "let me keep this."
+      </p>
+
+      <h3>Then: a social wishlist</h3>
+      <p>
+        Save and organize what you find, and see your friends' lists too. Closer. But a
+        bare list of products did not feel like <em>mine</em>. One person in testing said
+        the quiet part out loud.
+      </p>
+
+      <p class="pull">
+        A wishlist nobody else can see is annoying, and a wishlist that does not know
+        you is just a spreadsheet.
+      </p>
+
+      <h3>Now: taste at the core, wishlist on top</h3>
+      <p>
+        The app learns what you like first, and the social wishlist sits on that
+        foundation. The first time we read a taste profile back to someone in testing,
+        a person we had never met said, "that's me." That was the moment the product
+        worked.
+      </p>
+
+      <p>
+        The constant under all three: help people find things they will love, through
+        their own taste and the people they trust.
+      </p>
+    </section>
+
+    <section class="wrap">
+      <h2>Where design and engineering were the same job</h2>
+      <p>
+        Three pieces of the work where the design decisions and the code were one task,
+        done by one person.
+      </p>
+
+      <h3>The Taste Tab</h3>
+      <p>
+        A short quiz that builds a taste profile and feeds recommendations. I designed
+        the flow and the interface, then wrote it across the iOS app, a Python and
+        FastAPI backend, and a 490-item product catalog the recommendations pull from.
+      </p>
+      <p>
+        The choice underneath it: an explicit quiz, or infer taste from what people save.
+        Inferring is what most taste products reach for, and it is lower friction because
+        you never ask the user for anything. But it needs weeks of behaviour before it
+        can say anything true, and a wishlist with nothing in it is a dead app on day one.
+        So I traded cold-start friction for a profile that works on first launch.
+      </p>
+
+      <div class="artifact">
+        <span class="artifact-label">Screen recording · coming soon</span>
+        <span class="artifact-desc">The quiz building a real taste profile, start to finish.</span>
+      </div>
+
+      <h3>DigUI, a design system in SwiftUI</h3>
+      <p>
+        Cards, buttons, badges, loading states, built from scratch. Before it, color
+        values were scattered across 30 files. I pulled them into one shared set the
+        whole app reads from.
+      </p>
+      <p>
+        In 2019 I designed design system components for someone else to build. In 2026
+        I built this one myself, in SwiftUI.
+      </p>
+
+      <div class="artifact">
+        <span class="artifact-label">Component sheet · coming soon</span>
+        <span class="artifact-desc">The DigUI set, and the colour tokens before and after.</span>
+      </div>
+
+      <h3>Onboarding and analytics</h3>
+      <p>
+        I rebuilt the first run from 11 steps to 8 and added passwordless email sign-in.
+        To see where people fell off, I set up a PostHog funnel with privacy-safe
+        session replay.
+      </p>
+    </section>
+
+    <section class="wrap">
+      <h2>How I worked: judgment, not keystrokes</h2>
+      <p>
+        I delivered features across three codebases (iOS, backend, web) by directing AI
+        coding agents, often more than one at a time, then reviewing and testing every
+        change on a real device. I decide what to build and why, I give the agent the
+        context it needs, and I own whether the result is right.
+      </p>
+      <p>
+        One "clean" release taught me the edge of that. A code review passed two bugs
+        that only showed up once you actually lived in the product. Reading code and
+        using the thing are different skills. After that I stopped trusting a green
+        checkmark and started asking for the root cause.
+      </p>
+    </section>
+
+    <section class="wrap">
+      <h2>What shipped, honestly</h2>
+      <p>
+        What is built and running: an iOS app shipped through TestFlight beta to the
+        App Store, in real users' hands, with the Taste Tab, the DigUI design system,
+        and the rebuilt onboarding.
+        Next to it, a live marketing site with custom illustrations, two A/B-tested
+        landing pages, analytics, cookie consent, and a waitlist.
+      </p>
+      <p>The honest part: this is an early product, not a finished success story.</p>
+      <p>
+        The strongest evidence so far is qualitative. The taste profile lands. People
+        reach for the save before we ask them to.
+      </p>
+    </section>
+
+    <section class="wrap">
+      <h2>What I took from it</h2>
+      <p>
+        I stopped trusting a green checkmark. That is the smallest way I know to say
+        what changed: I used to hand work over and trust the review, and now I use the
+        thing myself before I believe it works. It made me slower on the day and
+        faster over a month.
+      </p>
+    </section>
+
+  </main>
+
+  <footer class="next wrap">
+    <p class="next-label">More work</p>
+    <ul class="next-list" role="list">
+      <li>
+        <a href="../bny/">BNY: automating 65+ task flows <span class="meta">Coming soon</span></a>
+      </li>
+      <li>
+        <a href="../prudential/">Prudential: rebuilding a mobile app's IA <span class="meta">Coming soon</span></a>
+      </li>
+    </ul>
+    <p class="contact">
+      Want to talk about any of it? <a href="mailto:viet@vietnhoang.com">Email me</a>.
+      Also on <a href="https://linkedin.com/in/vietnhoang" target="_blank" rel="noopener">LinkedIn</a>.
+    </p>
+  </footer>
+
+</body>
+</html>

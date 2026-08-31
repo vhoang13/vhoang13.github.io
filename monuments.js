@@ -17,10 +17,15 @@
   // cells: [dx, dy, dz, req] — req '*' = any block, or a specific color key.
   // empty: cells that must contain NOTHING (no block, no monument).
   // sameColor: all matched blocks must share one color.
-  // Model entries: [dx, dy, dz, footprint, sz, colorKey, glow?] — footprint
-  // is [sx, sy] (rectangular; a plain number means square, and a quarter
-  // turn swaps the axes at instantiate). Fractional dx/dy shift the cube
-  // center off-cell; fractional dz stacks partial cubes.
+  // Model entries: [dx, dy, dz, footprint, sz, colorKey, glow?, sign?,
+  // win?] — footprint is [sx, sy] (rectangular; a plain number means
+  // square, and a quarter turn swaps the axes at instantiate).
+  // Fractional dx/dy shift the cube center off-cell; fractional dz
+  // stacks partial cubes. sign NAMES the pixel wordmark a plate carries
+  // (a key into world.js SIGN_MARKS); win is a PARAPET HEIGHT in cells —
+  // truthy means "draw the curtain-wall window grid on this piece,
+  // stopping that far below its top". Both ride the recipe, not the
+  // save, so reinstantiate restores them.
   //
   // ⚠ Pieces must be pairwise DISJOINT (touching faces are fine). Two
   // boxes that INTERPENETRATE have no valid painter's order: whichever
@@ -75,23 +80,30 @@
       // columns are red on the real gate) roofed in copper, with raised
       // end blocks suggesting the upturned tips. Rect footprints
       // throughout — the old square lintel rendered as a table top.
+      // 2026-08-27 mass pass: the gate returned 22% of the volume its nine
+      // cubes held and read as smaller than the wall it replaced. Members
+      // thickened per the value of the REAL gate's proportions — columns
+      // 0.42→0.68, lintels deepened — with every joint re-butted to the
+      // new column faces (inner faces now at 0.84 / 2.16) and no piece's
+      // spill grown past what the guard already knows. Nuki stays 0.26
+      // tall: its top must keep butting the gakuzuka at z 1.71.
       model: [
-        [0, 0, 0,    [0.5, 0.5],   0.14, 'kasagiBlack'],  // nemaki L
-        [2, 0, 0,    [0.5, 0.5],   0.14, 'kasagiBlack'],  // nemaki R
-        [0, 0, 0.14, [0.42, 0.42], 1.89, 'vermilion'],    // column L (tucks under the shimaki)
-        [2, 0, 0.14, [0.42, 0.42], 1.89, 'vermilion'],    // column R
+        [0, 0, 0,    [0.8, 0.8],   0.14, 'kasagiBlack'],  // nemaki L
+        [2, 0, 0,    [0.8, 0.8],   0.14, 'kasagiBlack'],  // nemaki R
+        [0, 0, 0.14, [0.68, 0.68], 1.89, 'vermilion'],    // column L (tucks under the shimaki)
+        [2, 0, 0.14, [0.68, 0.68], 1.89, 'vermilion'],    // column R
         // Nuki tie-beam in its VISIBLE segments (the parts inside the
         // columns are never seen; a through-beam has no paint order)
-        [-0.355, 0, 1.45, [0.29, 0.3], 0.26, 'vermilion'], // nuki, protruding end L
-        [1, 0, 1.45, [1.58, 0.3],  0.26, 'vermilion'],     // nuki, span between columns
-        [2.355, 0, 1.45, [0.29, 0.3], 0.26, 'vermilion'],  // nuki, protruding end R
-        [1, 0, 1.71, [0.32, 0.32], 0.32, 'vermilion'],    // gakuzuka strut
-        [1, -0.19, 1.78, [0.26, 0.06], 0.22, 'gold'],     // shrine plaque, front face
-        [1, 0, 2.03, [3.2, 0.38],  0.3,  'vermilion'],    // shimaki (columns end here)
-        [1, 0, 2.33, [3.5, 0.44],  0.26, 'kasagiBlack'],  // kasagi
-        [1, 0, 2.59, [3.54, 0.48], 0.1,  'copper'],       // copper roof plates
-        [-0.55, 0, 2.69, [0.4, 0.46], 0.3, 'kasagiBlack'], // upturned tip L (rises above the roofline)
-        [2.55, 0, 2.69, [0.4, 0.46], 0.3, 'kasagiBlack'],  // upturned tip R
+        [-0.42, 0, 1.45, [0.16, 0.44], 0.26, 'vermilion'], // nuki, protruding end L (flush with the footprint edge, like before)
+        [1, 0, 1.45, [1.32, 0.44],  0.26, 'vermilion'],    // nuki, span between columns
+        [2.42, 0, 1.45, [0.16, 0.44], 0.26, 'vermilion'],  // nuki, protruding end R
+        [1, 0, 1.71, [0.42, 0.42], 0.32, 'vermilion'],    // gakuzuka strut
+        [1, -0.24, 1.78, [0.26, 0.06], 0.22, 'gold'],     // shrine plaque, front face
+        [1, 0, 2.03, [3.2, 0.56],  0.3,  'vermilion'],    // shimaki (columns end here)
+        [1, 0, 2.33, [3.5, 0.64],  0.26, 'kasagiBlack'],  // kasagi
+        [1, 0, 2.59, [3.54, 0.68], 0.1,  'copper'],       // copper roof plates
+        [-0.55, 0, 2.69, [0.4, 0.62], 0.3, 'kasagiBlack'], // upturned tip L (rises above the roofline)
+        [2.55, 0, 2.69, [0.4, 0.62], 0.3, 'kasagiBlack'],  // upturned tip R
       ],
     },
     {
@@ -108,21 +120,32 @@
       // Sarsen grey (not warm limestone): each upright is two stacked,
       // slightly offset stones — quarried, not machined — under true
       // rectangular lintels. Two fallen stones in the middle.
+      // 2026-08-27 mass pass: 37% of its eight cubes — sarsens are the
+      // heaviest objects their landscape has, and these read as fence
+      // posts. Stones widened AND deepened (still each slightly different
+      // — quarried, not machined); lintels deepened to match and the
+      // y-pair re-butted to the deeper x-pair (butt faces now at y 0.86).
+      // The (2,2) upright shifts +0.04 so the pocket stone keeps its
+      // exact corner-butt clearances; the big fallen stone grows only
+      // away from those butt faces.
       model: [
-        [0, 0, 0,      [0.62, 0.5],  0.9,  'sarsenGrey'],
-        [0.03, 0, 0.9, [0.56, 0.46], 0.85, 'sarsenGrey'],
-        [2, 0, 0,      [0.6, 0.52],  0.92, 'sarsenGrey'],
-        [1.97, 0, 0.92,[0.55, 0.46], 0.83, 'sarsenGrey'],
-        [0, 2, 0,      [0.61, 0.5],  0.88, 'sarsenGrey'],
-        [0.02, 2, 0.88,[0.54, 0.47], 0.85, 'sarsenGrey'],
-        [2, 2, 0,      [0.6, 0.5],   0.95, 'sarsenGrey'],
-        [2, 2, 0.95,   [0.55, 0.45], 0.8,  'sarsenGrey'],
-        [1, 0, 1.75,   [2.5, 0.55],  0.35, 'sarsenGrey'], // lintel, x-pair
+        [0, 0, 0,      [0.72, 0.68], 0.9,  'sarsenGrey'],
+        [0.03, 0, 0.9, [0.66, 0.62], 0.85, 'sarsenGrey'],
+        [2, 0, 0,      [0.7, 0.68],  0.92, 'sarsenGrey'],
+        [1.97, 0, 0.92,[0.64, 0.6],  0.83, 'sarsenGrey'],
+        [0, 2, 0,      [0.71, 0.66], 0.88, 'sarsenGrey'],
+        [0.02, 2, 0.88,[0.63, 0.61], 0.85, 'sarsenGrey'],
+        [2.04, 2.04, 0,    [0.66, 0.62], 0.95, 'sarsenGrey'],
+        [2.04, 2.04, 0.95, [0.6, 0.55],  0.8,  'sarsenGrey'],
+        [1, 0, 1.75,   [2.5, 0.72],  0.44, 'sarsenGrey'], // lintel, x-pair
         // y-pair lintel BUTTS the x-pair (they used to cross inside the
         // shared corner post — two boxes through each other)
-        [0, 1.2625, 1.73, [0.55, 1.975], 0.35, 'sarsenGrey'],
-        [1, 1.1, 0,    [0.85, 0.5],  0.3,  'sarsenGrey'], // fallen stone
-        [1.56, 1.55, 0, [0.27, 0.4], 0.26, 'stoneDark'],  // second, in the pocket between
+        // y-pair keeps sz 0.35: at 0.44 its top crossed the z=2 claim
+        // threshold (top − SOLID_EPS > 2.0) and newly blocked two tiles —
+        // a gameplay change. Unequal lintels also read right: quarried.
+        [0, 1.305, 1.73, [0.72, 1.89], 0.35, 'sarsenGrey'],
+        [0.95, 1.04, 0, [0.95, 0.62], 0.36, 'sarsenGrey'], // fallen stone
+        [1.56, 1.55, 0, [0.27, 0.4], 0.3, 'stoneDark'],   // second, in the pocket between
       ],
     },
     {
@@ -217,21 +240,26 @@
       // Cream marble: plinths, piers with raised relief panels (they
       // must protrude — a correct sorter hides embedded detail), frieze,
       // cornice, attic, top cornice.
+      // 2026-08-27 mass pass: 38% of its six cubes. The doorway IS the
+      // monument, so the piers take their mass in DEPTH (0.48→0.66) and
+      // only modestly in width (0.5→0.56, keeping a 0.44 opening); the
+      // superstructure deepens to match. Relief plates re-butted to the
+      // new pier faces (y 0.17 / 0.83).
       model: [
-        [0, 0, 0, [0.6, 0.55], 0.25, 'marbleShadow'],
-        [1, 0, 0, [0.6, 0.55], 0.25, 'marbleShadow'],
-        [0, 0, 0.25, [0.5, 0.48], 1.65, 'marble'],
-        [1, 0, 0.25, [0.5, 0.48], 1.65, 'marble'],
+        [0, 0, 0, [0.68, 0.78], 0.25, 'marbleShadow'],
+        [1, 0, 0, [0.68, 0.78], 0.25, 'marbleShadow'],
+        [0, 0, 0.25, [0.56, 0.66], 1.65, 'marble'],
+        [1, 0, 0.25, [0.56, 0.66], 1.65, 'marble'],
         // Relief panels: one plate per pier FACE (a buried two-sided
         // panel showed through the pier from behind)
-        [0, -0.275, 0.55, [0.34, 0.07], 0.75, 'marbleShadow'],
-        [0, 0.275, 0.55, [0.34, 0.07], 0.75, 'marbleShadow'],
-        [1, -0.275, 0.55, [0.34, 0.07], 0.75, 'marbleShadow'],
-        [1, 0.275, 0.55, [0.34, 0.07], 0.75, 'marbleShadow'],
-        [0.5, 0, 1.9, [2.0, 0.62], 0.28, 'marble'],       // frieze band
-        [0.5, 0, 2.18, [2.15, 0.68], 0.14, 'marbleShadow'],
-        [0.5, 0, 2.32, [1.95, 0.6], 0.45, 'marble'],      // attic
-        [0.5, 0, 2.77, [2.05, 0.64], 0.12, 'marbleShadow'],
+        [0, -0.365, 0.55, [0.4, 0.07], 0.75, 'marbleShadow'],
+        [0, 0.365, 0.55, [0.4, 0.07], 0.75, 'marbleShadow'],
+        [1, -0.365, 0.55, [0.4, 0.07], 0.75, 'marbleShadow'],
+        [1, 0.365, 0.55, [0.4, 0.07], 0.75, 'marbleShadow'],
+        [0.5, 0, 1.9, [2.0, 0.72], 0.28, 'marble'],       // frieze band
+        [0.5, 0, 2.18, [2.15, 0.76], 0.14, 'marbleShadow'],
+        [0.5, 0, 2.32, [1.95, 0.7], 0.45, 'marble'],      // attic
+        [0.5, 0, 2.77, [2.05, 0.74], 0.12, 'marbleShadow'],
       ],
     },
     {
@@ -291,27 +319,34 @@
       // four splayed legs, crossed arch beams beneath a true first
       // platform, a tapering shaft with stepped stages standing in for
       // the lattice, second platform, mast, warm beacon.
+      // 2026-08-27 mass pass: 24% of its five cubes' volume — the lattice
+      // read as a wire toy beside them. Footprints widened only (every z
+      // joint butts in a chain; touching sz would re-plumb the whole
+      // tower): legs 0.3→0.42, shaft stages +~0.1, arch arms re-fitted to
+      // the thicker crossing. The taper survives; the tower just eats.
       model: [
-        [-0.28, -0.28, 0, [0.3, 0.3], 0.85, 'ironBronze'],
-        [0.28, -0.28, 0, [0.3, 0.3], 0.85, 'ironBronze'],
-        [-0.28, 0.28, 0, [0.3, 0.3], 0.85, 'ironBronze'],
-        [0.28, 0.28, 0, [0.3, 0.3], 0.85, 'ironBronze'],
+        [-0.3, -0.3, 0, [0.4, 0.4], 0.85, 'ironBronze'],
+        [0.3, -0.3, 0, [0.4, 0.4], 0.85, 'ironBronze'],
+        [-0.3, 0.3, 0, [0.4, 0.4], 0.85, 'ironBronze'],
+        [0.3, 0.3, 0, [0.4, 0.4], 0.85, 'ironBronze'],
         // Crossed arch beams, split at the crossing (two boxes passing
-        // through each other created a sort cycle at every angle)
-        [0, 0, 0.52, [0.2, 0.2], 0.2, 'ironBronze'],         // the crossing
-        [-0.2875, 0, 0.52, [0.375, 0.2], 0.2, 'ironBronze'], // x-run, left arm
-        [0.2875, 0, 0.52, [0.375, 0.2], 0.2, 'ironBronze'],  // x-run, right arm
-        [0, -0.2875, 0.52, [0.2, 0.375], 0.2, 'ironBronze'], // y-run, near arm
-        [0, 0.2875, 0.52, [0.2, 0.375], 0.2, 'ironBronze'],  // y-run, far arm
+        // through each other created a sort cycle at every angle).
+        // Beam plan is EXACT-touch against the 0.4 legs (leg faces at
+        // 0.40/0.60): widen anything here and it interpenetrates all four.
+        [0, 0, 0.52, [0.2, 0.2], 0.26, 'ironBronze'],         // the crossing
+        [-0.2875, 0, 0.52, [0.375, 0.2], 0.26, 'ironBronze'], // x-run, left arm
+        [0.2875, 0, 0.52, [0.375, 0.2], 0.26, 'ironBronze'],  // x-run, right arm
+        [0, -0.2875, 0.52, [0.2, 0.375], 0.26, 'ironBronze'], // y-run, near arm
+        [0, 0.2875, 0.52, [0.2, 0.375], 0.26, 'ironBronze'],  // y-run, far arm
         [0, 0, 0.85, [1.2, 1.2], 0.16, 'ironBronze'],   // first platform
-        [0, 0, 1.01, [0.58, 0.58], 0.55, 'ironBronze'],
-        [0, 0, 1.56, [0.5, 0.5], 0.5, 'ironBronze'],
-        [0, 0, 2.06, [0.78, 0.78], 0.13, 'ironBronze'], // second platform
-        [0, 0, 2.19, [0.4, 0.4], 0.6, 'ironBronze'],
-        [0, 0, 2.79, [0.33, 0.33], 0.6, 'ironBronze'],
-        [0, 0, 3.39, [0.26, 0.26], 0.6, 'ironBronze'],
-        [0, 0, 3.99, [0.34, 0.34], 0.1, 'ironBronze'],  // top deck
-        [0, 0, 4.09, [0.12, 0.12], 0.45, 'ironBronze'], // mast
+        [0, 0, 1.01, [0.72, 0.72], 0.55, 'ironBronze'],
+        [0, 0, 1.56, [0.62, 0.62], 0.5, 'ironBronze'],
+        [0, 0, 2.06, [0.88, 0.88], 0.13, 'ironBronze'], // second platform
+        [0, 0, 2.19, [0.52, 0.52], 0.6, 'ironBronze'],
+        [0, 0, 2.79, [0.44, 0.44], 0.6, 'ironBronze'],
+        [0, 0, 3.39, [0.36, 0.36], 0.6, 'ironBronze'],
+        [0, 0, 3.99, [0.44, 0.44], 0.1, 'ironBronze'],  // top deck
+        [0, 0, 4.09, [0.16, 0.16], 0.45, 'ironBronze'], // mast
         [0, 0, 4.54, [0.1, 0.1], 0.24, 'lamp', true],   // beacon
       ],
     },
@@ -411,14 +446,17 @@
       ],
       // Luxor rose granite on a stepped pedestal, tapering shaft in
       // shade-varied segments, gilded pyramidion.
+      // 2026-08-27 mass pass: 31% of its four cubes — the needle read as a
+      // stick. Shaft 0.52→0.66 with the taper steps preserved (0.08 per
+      // stage); pure z-stack, every joint still butts.
       model: [
         [0, 0, 0, [0.95, 0.95], 0.3, 'stoneDark'],       // base slab
-        [0, 0, 0.3, [0.68, 0.68], 0.45, 'graniteRose'],  // pedestal
-        [0, 0, 0.75, [0.8, 0.8], 0.1, 'stoneDark'],      // pedestal cap
-        [0, 0, 0.85, [0.52, 0.52], 1.1, 'graniteRose'],
-        [0, 0, 1.95, [0.46, 0.46], 1.05, 'graniteRose'],
-        [0, 0, 3.0, [0.4, 0.4], 0.95, 'graniteRose'],
-        [0, 0, 3.95, [0.32, 0.32], 0.38, 'gold', true],  // pyramidion
+        [0, 0, 0.3, [0.78, 0.78], 0.45, 'graniteRose'],  // pedestal
+        [0, 0, 0.75, [0.88, 0.88], 0.1, 'stoneDark'],    // pedestal cap
+        [0, 0, 0.85, [0.66, 0.66], 1.1, 'graniteRose'],
+        [0, 0, 1.95, [0.58, 0.58], 1.05, 'graniteRose'],
+        [0, 0, 3.0, [0.5, 0.5], 0.95, 'graniteRose'],
+        [0, 0, 3.95, [0.42, 0.42], 0.38, 'gold', true],  // pyramidion
       ],
     },
     {
@@ -470,6 +508,116 @@
         [0.75, 0.36, 1.13, [0.28, 0.18], 0.22, 'brickDark'],
         [2.15, 0.36, 1.13, [0.28, 0.18], 0.22, 'brickDark'],
         [3.55, 0.36, 1.13, [0.28, 0.18], 0.22, 'brickDark'],
+      ],
+    },
+    {
+      id: 'prudential',
+      name: 'Prudential Tower',
+      hint: 'a blue wall, three across and three high',
+      // The FIRST portfolio monument: 751 Broad St, Newark (1960) — where
+      // Viet was Sr. Product Designer 2018–2021. The card says so.
+      //
+      // The recipe joins the game's colour-wall namespace: red 3×3 wall =
+      // torii, white 3×2 wall = temple, BLUE 3×3 wall = this. Colour is
+      // what the matcher already uses to tell identical shapes apart, and
+      // the explicit colour is also what makes it buildable at all
+      // (temple's wall and arc's 2×3 live inside every wall; they defer
+      // only to a LARGER recipe's explicit colour demand — '*' here would
+      // be eaten mid-build in every order, and WHITE is the temple's).
+      // Blue is the one colour that is HONEST here anyway: it is
+      // Prudential's brand blue — you build the company colour and it
+      // becomes the company's limestone tower wearing its blue sign.
+      card: { title: 'PRUDENTIAL', sub: 'SR. PRODUCT DESIGNER · 2018–2021' },
+      // Where the opening builds it: against the far edge, LEFT of BNY,
+      // so the skyline reads 2018 → 2021 and the centre stays the
+      // visitor's canvas. Consumed by runEntrance (the tidy stack lands
+      // here) and plantHomes (pre-tower saves).
+      home: { ox: -4, oy: -4, k: 0 },
+      // Never lose these blocks to a smaller recipe, even once discovered —
+      // see the learned-trap note in shouldDefer. The arc (2×3, any plain
+      // colour) lives inside this 3×3 wall and used to eat it. BNY's tower
+      // must carry this too.
+      neverStolen: true,
+      cells: [
+        [0, 0, 0, 'blue'], [1, 0, 0, 'blue'], [2, 0, 0, 'blue'],
+        [0, 0, 1, 'blue'], [1, 0, 1, 'blue'], [2, 0, 1, 'blue'],
+        [0, 0, 2, 'blue'], [1, 0, 2, 'blue'], [2, 0, 2, 'blue'],
+      ],
+      // A broad flat slab (the 1960 curtain-wall block reads as a wall,
+      // not a spire), risen from a wider podium with a heavy cornice, on
+      // a plaza that is part of the monument — the "distinct site" that
+      // will separate it from BNY's tower later. The crown is the blank
+      // parapet band carrying the lit blue PRUDENTIAL sign (face plates,
+      // doghouse-door idiom, glowing steady) and the flagpole from the
+      // reference photos. Volume 57.7% of its nine cubes — the top half
+      // of the 40–60 band; a solid office tower SHOULD read massive.
+      model: [
+        [1, 0, 0,    [3.05, 1.35], 0.1,  'stoneDark'],     // plaza
+        [1, 0, 0.1,  [2.75, 1.12], 0.34, 'travertineDark'], // podium
+        [1, 0, 0.44, [2.85, 1.2],  0.08, 'stoneDark'],     // podium cornice
+        [1, 0, 0.52, [2.3, 0.46],  3.2,  'travertine', 0, 0, 0.55], // the slab shaft — windowed, blank parapet above
+        [1, -0.26, 3.26, [2.0, 0.06], 0.3, 'pruBlue', true, 'prudential'], // sign, front face (glow + wordmark)
+        [1, 0.26, 3.26,  [2.0, 0.06], 0.3, 'pruBlue', true, 'prudential'], // sign, rear face
+        [1, 0, 3.72, [0.12, 0.12], 0.44, 'ironBronze'],    // flagpole
+      ],
+    },
+    {
+      id: 'bny',
+      name: 'Bank of New York',
+      hint: 'a cyan block, three by two and two high',
+      // The SECOND portfolio monument: 240 Greenwich St, New York (1983,
+      // SOM) — where Viet was Head of Design, Wealth, 2021–2025.
+      //
+      // Everything about it is Prudential's opposite, which is the whole
+      // differentiation strategy: WIDE chunky box vs thin slab, cool
+      // silver glass vs warm limestone, HORIZONTAL ribbon windows vs a
+      // vertical grid, stepped terraced roofline + rooftop drum vs blank
+      // parapet + flagpole. Cyan is the honest colour twice over: the
+      // 2024 BNY rebrand's hero colour is a distinctive teal, and cyan
+      // is what the swatch row offers. The recipe is theft-proof by
+      // colour alone — crystal demands glass, gardens demands grass
+      // tops, temple white, doghouse orange/red — but neverStolen goes
+      // on anyway, same insurance as Prudential.
+      card: { title: 'BANK OF NEW YORK', sub: 'HEAD OF DESIGN, WEALTH · 2021–2025' },
+      neverStolen: true,
+      home: { ox: 0, oy: -4, k: 0 }, // far edge, RIGHT of Prudential — the career reads left→right
+      cells: [
+        [0, 0, 0, 'cyan'], [1, 0, 0, 'cyan'], [2, 0, 0, 'cyan'],
+        [0, 1, 0, 'cyan'], [1, 1, 0, 'cyan'], [2, 1, 0, 'cyan'],
+        [0, 0, 1, 'cyan'], [1, 0, 1, 'cyan'], [2, 0, 1, 'cyan'],
+        [0, 1, 1, 'cyan'], [1, 1, 1, 'cyan'], [2, 1, 1, 'cyan'],
+      ],
+      // The ribbon read is built in GEOMETRY, not texture: the body is a
+      // stack of alternating slabs — pale spandrel bands ('lightWhite',
+      // faces < 0.8 cells² so the marble family stays clean) and dark
+      // night-glazing bands ('bnyGlass', no material family). Robust at
+      // every zoom, zero new draw code. Mass 92% of its twelve cubes —
+      // NOT the towers' 40–60 band, deliberately: that band repaired the
+      // thin five, and on a wide footprint it would force a squat plinth
+      // (60% volume = a 1.2-cell-tall slab losing to its own 2-cube
+      // stack). The chunky healthy monuments are the right reference:
+      // colosseum 90%, pyramid 91%. Height 126% of the stack.
+      model: [
+        [1, 0.5, 0,    [3.3, 2.3],   0.08, 'stoneDark'],   // plaza (street trees' ground)
+        [1, 0.5, 0.08, [2.95, 1.95], 0.26, 'bnyGlass'],    // glass lobby storey
+        [1, 0.5, 0.34, [2.8, 1.8],   0.09, 'lightWhite'],  // spandrel
+        [1, 0.5, 0.43, [2.8, 1.8],   0.13, 'bnyGlass'],    // ribbon
+        [1, 0.5, 0.56, [2.8, 1.8],   0.09, 'lightWhite'],
+        [1, 0.5, 0.65, [2.8, 1.8],   0.13, 'bnyGlass'],
+        [1, 0.5, 0.78, [2.8, 1.8],   0.09, 'lightWhite'],
+        [1, 0.5, 0.87, [2.8, 1.8],   0.13, 'bnyGlass'],
+        [1, 0.5, 1.0,  [2.8, 1.8],   0.09, 'lightWhite'],
+        [1, 0.5, 1.09, [2.8, 1.8],   0.13, 'bnyGlass'],
+        [1, 0.5, 1.22, [2.8, 1.8],   0.09, 'lightWhite'],
+        [1, 0.5, 1.31, [2.8, 1.8],   0.13, 'bnyGlass'],
+        [1, 0.5, 1.44, [2.8, 1.8],   0.09, 'lightWhite'],
+        [1, 0.5, 1.53, [2.8, 1.8],   0.13, 'bnyGlass'],
+        [1, 0.5, 1.66, [2.8, 1.8],   0.26, 'lightWhite'],  // parapet band — carries the sign
+        [1, -0.43, 1.69, [1.3, 0.06], 0.2, 'bnyNavy', true, 'bny'], // sign card, front face (navy ground, white BNY, teal arrow)
+        [1, 1.43, 1.69,  [1.3, 0.06], 0.2, 'bnyNavy', true, 'bny'], // sign card, rear face
+        [0.85, 0.5, 1.92, [2.3, 1.5], 0.16, 'lightWhite'], // roof terrace, first setback
+        [0.65, 0.5, 2.08, [1.7, 1.2], 0.16, 'lightWhite'], // second setback — the staircase roofline
+        [0.55, 0.55, 2.24, [0.42, 0.42], 0.28, 'lightWhite'], // the rooftop drum
       ],
     },
   ];
@@ -636,7 +784,17 @@
     if (!starKeys.size) return false; // a fully explicit recipe always wins
     for (const L of RECIPES) {
       if (L === R || L.cells.length <= R.cells.length) continue;
-      if (M.discovered.has(L.id)) continue;
+      // The learned-trap exemption, and the ONE case it must not apply to.
+      // For the 13 toys "you found it, now you can build around it" is the
+      // right rule. For a portfolio building it is exactly backwards: the
+      // opening ceremony discovers the towers in the first seconds of every
+      // visit, so without neverStolen a hand-rebuilt blue 3×3 wall becomes
+      // an ARC ~70% of the time (measured) for the whole rest of the visit.
+      // A tower is an address, not a puzzle — it must always be reachable.
+      // Cost, accepted: a BLUE arc is now permanently impossible (eight
+      // other colours still make one), and that is the more consistent
+      // rule anyway — a blue 2×3 wall is always on its way to Prudential.
+      if (M.discovered.has(L.id) && !L.neverStolen) continue;
       for (let k = 0; k < 4; k++) {
         // Candidate placements of L: align each of its cells onto each
         // matched block (small numbers — recipes are ≤10 cells)
@@ -777,6 +935,8 @@
       return {
         gx: ox + rx, gy: oy + ry, gz: oz + e[2],
         sxy: sx, sy, sz: e[4], color: e[5], glow: !!e[6],
+        sign: e[7] || false, // a MARK KEY into world.js SIGN_MARKS ('prudential', 'bny')
+        win: e[8] || 0,
         appearAt: 0.7 + (e[2] / maxDz) * 0.75, // bottom-up pop-in
         pop: pending ? 0 : 1,
       };
@@ -790,6 +950,7 @@
       }),
       model,
       pending,
+      lift: 0, // hover lift (grid units) — eased in M.update, like blocks
     };
     monument.blocked = blockedCellsFor(model, monument.cells);
     W.monuments.push(monument);
@@ -922,6 +1083,27 @@
   }
 
   M.update = (dt) => {
+    // Hover lift — the block treatment (world.js) applied to whole
+    // monuments: same 0.12 target, same easing rate, snapped at rest so
+    // the offset can't leave gz math permanently fractional. Gated off
+    // while pending (the ceremony owns the rise), while dragging (the
+    // ghost owns it — two owners of one property is this project's
+    // most-repeated bug), and while any live block rests ON the monument:
+    // the buried-block rule. Rising into a block that stays put reads as
+    // a glitch; the grab cursor still carries the feedback. The support
+    // test only runs for the one hovered monument (short-circuit), and
+    // floor(gz - 0.001) maps a block perched at fractional height onto
+    // the occupancy cell of the piece holding it up.
+    W.monuments.forEach(mon => {
+      const target = (mon === W.hoveredMonument && !mon.pending && !mon._dragging &&
+        !W.blocks.some(b => W.isLive(b) &&
+          W.at(b.gx, b.gy, Math.floor(b.gz - 0.001)) === mon)) ? 0.12 : 0;
+      const cur = mon.lift || 0; // undefined on the raw-load fallback path
+      let next = cur + (target - cur) * Math.min(1, 12 * dt);
+      if (Math.abs(next - target) < 0.001) next = target;
+      mon.lift = next;
+    });
+
     for (let i = ceremonies.length - 1; i >= 0; i--) {
       const c = ceremonies[i];
       c.t += dt;
@@ -929,7 +1111,16 @@
 
       if (!c.flashed && c.t >= 0.7) {
         c.flashed = true;
-        if (!E.reducedMotion) { E.kickShake(4); W.kickDip(1.5); }
+        // The entrance hero's landing weight, given to every ceremony
+        // (designer, 2026-08-29): shake + dip were already here, but the
+        // HIT-STOP — the world freezing dead on the impact frame — is
+        // what makes the hero's landing feel like it moves the platform.
+        // Scaled by the monument's size: a doghouse thuds, a bank slams.
+        // kickHitStop is render-loop only, so harnesses are unaffected.
+        if (!E.reducedMotion) {
+          E.kickShake(4); W.kickDip(1.5);
+          W.kickHitStop(Math.min(0.1, 0.04 + c.recipe.cells.length * 0.005));
+        }
         if (VH.fx) {
           VH.fx.spawnDust(Math.round(c.cx - 0.5), Math.round(c.cy - 0.5), Math.max(0, Math.round(c.cz - 0.5)), 14);
           // The bloom (drawn by fx.js flashes — shared with firework detonations)
@@ -993,6 +1184,38 @@
     return ((Math.abs(Math.round(h)) % 7) - 3) / 3;
   }
 
+  // Plant any recipe with a `home` {ox, oy, oz?, k?} that isn't already
+  // standing — for the RETURNING visitor whose save predates the towers.
+  // Three rules, each load-bearing:
+  //  · a board that HAS the tower wins, wherever the visitor moved it —
+  //    this fills absence, never position;
+  //  · a tower in `discovered` but absent was DESTROYED BY CHOICE (the
+  //    towers are ordinary monuments; Clear and the void are allowed to
+  //    win) — absence persists, Reset is the way back;
+  //  · never plant INTO a visitor's build — every footprint column must
+  //    be empty, or the plant is skipped entirely.
+  // First visits never reach this: runEntrance builds the towers on
+  // screen with their ceremonies. Discovery is NOT granted here either —
+  // finding a monument stays something the ceremony does.
+  M.plantHomes = () => {
+    let added = 0;
+    RECIPES.forEach(r => {
+      if (!r.home) return;
+      if (W.monuments.some(m => m.id === r.id)) return;
+      if (M.discovered.has(r.id)) return;
+      const k = r.home.k || 0;
+      const clear = r.cells.every(c => {
+        const [rx, ry] = rot(c[0], c[1], k);
+        return W.getStackHeight(r.home.ox + rx, r.home.oy + ry) === 0;
+      });
+      if (!clear) return;
+      M.instantiate(r, r.home.ox, r.home.oy, r.home.oz || 0, k);
+      added++;
+    });
+    if (added) W.markDirty();
+    return added;
+  };
+
   // Rebuild a SAVED monument from its recipe: the stored cells give origin
   // and rotation (cells were serialised in recipe order), so model art
   // improvements reach existing saves instead of being pinned by them.
@@ -1044,9 +1267,14 @@
     W.monuments.forEach(mon => {
       if (mon.pending) return; // still mid-ceremony; its ceremony contributes below
       const op = mon._dragging ? 0.45 : 1; // dimmed while being carried
+      // Hover lift rides the SORT KEY as well as the draw — offsetting the
+      // pixels but not the entry's gz would make a lifted monument sort
+      // behind things it is now visually in front of. tex/flower seeding
+      // stay on the LOGICAL piece (unlifted), per the anti-crawl contract.
+      const lift = mon.lift || 0;
       mon.model.forEach(m => {
         entries.push({
-          gx: m.gx, gy: m.gy, gz: m.gz, sxy: m.sxy, sy: m.sy, sz: m.sz,
+          gx: m.gx, gy: m.gy, gz: m.gz + lift, sxy: m.sxy, sy: m.sy, sz: m.sz,
           // shade: deterministic per-piece tonal jitter — free stone-course
           // variation. contact: ground courses read as seated, not placed.
           // 'grass' is the gardens' greenery and nothing else's among
@@ -1055,11 +1283,11 @@
           // their own piece, which keeps them correctly occluded by
           // anything sorted in front.
           draw: () => {
-            W.drawBlock(m.gx, m.gy, m.gz - dip, m.color, op,
+            W.drawBlock(m.gx, m.gy, m.gz + lift - dip, m.color, op,
               { styled: true, sxy: m.sxy, sy: m.sy, sz: m.sz, tex: m,
                 shade: pieceShade(m), contact: m.gz === 0 });
             if (m.color === 'grass') {
-              W.drawFlowers(m.gx, m.gy, m.gz - dip, m.sxy, m.sy, m.sz, m, op);
+              W.drawFlowers(m.gx, m.gy, m.gz + lift - dip, m.sxy, m.sy, m.sz, m, op);
             }
           },
         });
@@ -1176,27 +1404,39 @@
   }
 
   // Warm glow for monument cells flagged glow (lighthouse lamp, gold tip)
-  // — registered as LIGHTS for the bloom pass, not painted gradients
+  // — registered as LIGHTS for the bloom pass, not painted gradients.
+  // A lit SIGN (the Prudential band) glows its own blue and holds STEADY:
+  // flame and gilt flicker, corporate signage does not.
   M.drawGlows = () => {
     const t = E.TILE * E.SCALE;
     W.monuments.forEach(mon => {
       mon.model.forEach(m => {
         if (!m.glow) return;
         const s = E.toScreen(m.gx + 0.5, m.gy + 0.5, m.gz + m.sz / 2);
-        const flicker = E.reducedMotion
+        const sign = m.sign; // sign-ness is a piece flag, not a colour test
+        // Each sign glows its own brand light; flame and gilt stay warm.
+        const SIGN_LIGHT = { pruBlue: '130,175,255', bnyTeal: '110,225,205',
+                             bnyNavy: '170,205,235' }; // white letters throw a cool-white halo
+        const flicker = (sign || E.reducedMotion)
           ? 1 : 0.8 + 0.2 * Math.sin(VH.clock.time * 2.7 + m.gx * 3 + m.gy);
-        E.addLight(s.x, s.y, t * 2.4, '255,214,120', 0.22 * flicker);
+        E.addLight(s.x, s.y, t * 2.4,
+          sign ? (SIGN_LIGHT[m.color] || '130,175,255') : '255,214,120', 0.22 * flicker);
       });
     });
   };
 
   // ── The name card ───────────────────────────────────────────
+  // A recipe may carry `card: { title, sub }` — the portfolio towers say
+  // who Viet was there ("PRUDENTIAL / SR. PRODUCT DESIGNER · 2018–2021")
+  // where a wonder of the world says "discovered". Absent, the old copy
+  // stands, so the 13 originals are untouched.
   let cardTimer = null;
   function showCard(recipe) {
     const card = document.getElementById('monumentCard');
     if (!card) return;
-    document.getElementById('mcTitle').textContent = recipe.name.toUpperCase();
-    document.getElementById('mcSub').textContent = 'discovered';
+    const c = recipe.card || {};
+    document.getElementById('mcTitle').textContent = c.title || recipe.name.toUpperCase();
+    document.getElementById('mcSub').textContent = c.sub || 'discovered';
     card.classList.add('show');
     clearTimeout(cardTimer);
     cardTimer = setTimeout(() => card.classList.remove('show'), 2800);
@@ -1400,7 +1640,7 @@
       row.dataset.recipe = r.id;
       row.setAttribute('aria-expanded', String(isOpen));
       row.setAttribute('aria-label',
-        (isFound ? r.name + ', found. ' : 'Undiscovered monument: ' + r.hint + '. ') +
+        (isFound ? r.name + ', discovered. ' : 'Undiscovered monument: ' + r.hint + '. ') +
         (isOpen ? 'Plan: ' + recipeSummary(r) + '. Hide the plan.' : 'Show the plan.'));
       // Open → the blueprint. Shut → the monument if you've earned it, or
       // a neutral "?" plate if you haven't. (A canvas is a replaced
@@ -1428,7 +1668,7 @@
       if (isFound) {
         const b = document.createElement('span');
         b.className = 'codex-found';
-        b.textContent = 'Found';
+        b.textContent = 'Discovered'; // matches the card's own word and the header count
         name.appendChild(b);
       }
       const hint = document.createElement('div');

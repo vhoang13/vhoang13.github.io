@@ -29,9 +29,13 @@
       You're standing in one of the experiments. Click the grass to drop a
       block, and see what your shapes turn into.
     </p>
+    <!-- Work is the primary action: for a job search, seeing the work outranks
+         starting a conversation. --optional hides on phones, where three
+         buttons cannot fit the panel; LinkedIn stays in every case-study footer. -->
     <div class="panel-links">
-      <a href="mailto:viet@vietnhoang.com" class="link-btn">Say hello</a>
-      <a href="https://linkedin.com/in/vietnhoang" target="_blank" rel="noopener" class="link-btn link-btn--ghost">LinkedIn</a>
+      <a href="work/" class="link-btn link-btn--primary">Work</a>
+      <a href="mailto:viet@vietnhoang.com" class="link-btn link-btn--ghost">Say hello</a>
+      <a href="https://linkedin.com/in/vietnhoang" target="_blank" rel="noopener" class="link-btn link-btn--ghost link-btn--optional">LinkedIn</a>
     </div>
   </div>
   <!-- The tucked-panel pill: appears when the intro folds away (zoomed
@@ -52,7 +56,7 @@
         <path d="M3 2.5h7.5A2.5 2.5 0 0 1 13 5v8.5a1 1 0 0 0-1-1H3V2.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
         <path d="M3 12.5V14h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
       </svg>
-      <span id="codexBadge">0/13</span>
+      <span id="codexBadge">0/15</span>
     </button>
     <button class="ctrl-btn ctrl-btn--icon" id="postcardBtn" aria-label="Save a postcard of your build" title="Save a postcard">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
@@ -115,6 +119,33 @@
     <div class="codex-list" id="codexList"></div>
   </div>
 
+  <!-- Chat with Abe: tapping the surfaced gofer opens this. -->
+  <!-- role=region like the codex: non-modal, the world stays live behind
+       it; Escape closes it (routed through game.js, the one keyboard
+       authority). The log is role=log so replies announce politely. -->
+  <div class="chat" id="chat" role="region" aria-label="Chat with Abe" hidden>
+    <div class="chat-header">
+      <!-- The RPG dialog-box pattern (the FF reference): the speaker's
+           portrait sits beside their name. The art carries its own
+           painted frame, so the CSS adds no border of its own. -->
+      <img class="chat-avatar" src="abe.png" alt="" width="48" height="48">
+      <div class="chat-title">Abe</div>
+      <button class="chat-close" id="chatClose" aria-label="Close chat">×</button>
+    </div>
+    <div class="chat-log" id="chatLog" role="log" aria-label="Conversation"></div>
+    <div class="chat-chips" id="chatChips"></div>
+    <form class="chat-form" id="chatForm">
+      <input class="chat-input" id="chatInput" type="text" maxlength="280"
+             placeholder="Ask me anything…" aria-label="Ask Abe a question"
+             autocomplete="off">
+      <button class="chat-send" id="chatSend" type="submit" aria-label="Send">➤</button>
+    </form>
+    <div class="chat-foot">
+      Typed questions are answered by Claude ·
+      <a href="work/gofer/">Read the full case study</a>
+    </div>
+  </div>
+
   <!-- Monument discovery card -->
   <div class="monument-card" id="monumentCard" role="status" aria-live="polite">
     <div class="mc-title" id="mcTitle"></div>
@@ -129,6 +160,8 @@
   <script src="fx.js"></script>
   <script src="sfx.js"></script>
   <script src="monuments.js"></script>
+  <script src="gofer.js"></script>
+  <script src="chat.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

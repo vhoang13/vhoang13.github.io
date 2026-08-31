@@ -51,6 +51,10 @@
     girderRed:    { top: '#c25548', right: '#8e372d', front: '#aa463a' }, // crystal palace girders
     graniteRose:  { top: '#d9a08e', right: '#a06a5c', front: '#c08575' }, // obelisk (Luxor granite)
     sand:         { top: '#e2d3ab', right: '#ab9c77', front: '#c9ba92' }, // arena floor
+    pruBlue:      { top: '#79a8e0', right: '#4a6da3', front: '#618cc4' }, // Prudential sign — lit corporate blue
+    bnyTeal:      { top: '#45c7b8', right: '#2a8478', front: '#37a596' }, // BNY teal (kept: keys are forever)
+    bnyNavy:      { top: '#2b4d78', right: '#17304f', front: '#213e63' }, // BNY sign card — the brand navy ground
+    bnyGlass:     { top: '#3a4a56', right: '#232e38', front: '#2f3d48' }, // 240 Greenwich ribbon glazing, dark at night
   };
   W.BLOCK_COLORS = ['red', 'blue', 'green', 'yellow', 'orange', 'purple', 'cyan', 'pink', 'white'];
 
@@ -351,10 +355,16 @@
   // Optional `plan(gx, gy, gz, i)` returns makeBlock opts, so a caller
   // (the entrance) can choreograph heights/delays without a second spawn
   // path. No plan = the original uniform stagger.
-  W.spawnBlocks = (count, plan) => {
+  // Optional avoid(gx, gy) predicate: cells it claims are re-rolled (the
+  // entrance keeps the scatter off the towers' tidy stacks). Bounded
+  // retries so a huge avoid set can't spin forever.
+  W.spawnBlocks = (count, plan, avoid) => {
     for (let i = 0; i < count; i++) {
-      const gx = W.GRID_MIN + Math.floor(Math.random() * (W.GRID_MAX - W.GRID_MIN + 1));
-      const gy = W.GRID_MIN + Math.floor(Math.random() * (W.GRID_MAX - W.GRID_MIN + 1));
+      let gx, gy, tries = 0;
+      do {
+        gx = W.GRID_MIN + Math.floor(Math.random() * (W.GRID_MAX - W.GRID_MIN + 1));
+        gy = W.GRID_MIN + Math.floor(Math.random() * (W.GRID_MAX - W.GRID_MIN + 1));
+      } while (avoid && avoid(gx, gy) && ++tries < 40);
       const gz = W.getStackHeight(gx, gy);
       W.blocks.push(W.makeBlock(gx, gy, gz, plan ? plan(gx, gy, gz, i) : {
         dropOffset: 8 + Math.random() * 6 + gz * 1.5,
@@ -497,6 +507,7 @@
   W.kickDip = (v) => { W.dipVel += v; };
 
   W.hoveredBlock = null; // set by game.js; blocks ease a lift toward it
+  W.hoveredMonument = null; // same idea, whole monument (monuments.js eases it)
 
   // Shared firework launch: put a group of blocks on the staggered
   // ballistic arc (crouch → shockwave from cx/cy → apex detonation).
@@ -511,6 +522,12 @@
     const upFalloff = opts.upFalloff ?? 0.9;   // outer shells peak lower → a dome
     const delayBase = opts.delayBase ?? 0.09;
     const delayPerDist = opts.delayPerDist ?? 0.035;
+    // Per-block random launch spread ON TOP of the distance wave. Zero by
+    // default (ceremony sweeps keep their tight shockwave); the Clear
+    // passes ~1.5s so shells go up in loose volleys over a couple of
+    // seconds — a fireworks SHOW, not one salvo (designer note: "instead
+    // of everything going off at once").
+    const delayJitter = opts.delayJitter ?? 0;
     list.forEach(b => {
       if (b.blasting || b.preBlast !== null) return;
       const dx = b.gx - cx || (Math.random() - 0.5);
@@ -533,7 +550,8 @@
         b.blastGravity = FIREWORK_GRAVITY;
       }
       b.blastX = 0; b.blastY = 0; b.blastZ = 0;
-      b.preBlast = reduced ? 0.01 : delayBase + dist * delayPerDist; // shockwave stagger
+      b.preBlast = reduced ? 0.01
+        : delayBase + dist * delayPerDist + Math.random() * delayJitter;
     });
   };
 
@@ -875,6 +893,73 @@
     ctx.lineTo(px + B.x * dv, py + B.y * dv);
     ctx.closePath();
   }
+
+  // ── The sign (2026-08-28) ───────────────────────────────────
+  // The Prudential wordmark, authored as pixel art: the Rock of
+  // Gibraltar mark plus PRUDENTIAL in a 4×5 pixel alphabet, drawn as
+  // BUTTED face-space quads (the texMark idiom) on a flagged piece's
+  // broad face. Butted, not gapped: adjacent dots fuse into strokes so
+  // letters read solid while the grid step keeps the pixel voice. The
+  // whole mark is one batched fill; positions are face FRACTIONS, so
+  // the ceremony pop scales the sign with its plate for free, and
+  // nothing is seeded — a wordmark is the same every frame by nature.
+  // Simplified/authored, NOT a fetched brand asset (see the plan: a
+  // real logo file would be the most foreign object on screen).
+  const SIGN_FONT = {
+    P: ['###.', '#..#', '###.', '#...', '#...'],
+    R: ['###.', '#..#', '###.', '#.#.', '#..#'],
+    U: ['#..#', '#..#', '#..#', '#..#', '.##.'],
+    D: ['###.', '#..#', '#..#', '#..#', '###.'],
+    E: ['####', '#...', '###.', '#...', '####'],
+    N: ['#..#', '##.#', '#.##', '#..#', '#..#'],
+    T: ['####', '.#..', '.#..', '.#..', '.#..'],
+    I: ['###', '.#.', '.#.', '.#.', '###'],
+    A: ['.##.', '#..#', '####', '#..#', '#..#'],
+    L: ['#..', '#..', '#..', '#..', '###'],
+    B: ['###.', '#..#', '###.', '#..#', '###.'],
+    Y: ['#.#', '#.#', '.#.', '.#.', '.#.'],
+  };
+  // The Rock of Gibraltar: a craggy little mountain, asymmetric on purpose.
+  const SIGN_ROCK = ['...#..', '..##..', '..###.', '.####.', '######'];
+  // BNY's arrow (the 2024 rebrand): a right-pointing arrowhead with a
+  // notched tail — drawn from the designer's own logo reference
+  // (assets/reference/bny/BNY Logo.png), not from press descriptions,
+  // which read "refined arrow" and led a first draft to point it ↗.
+  const SIGN_ARROW = ['##...', '.###.', '..###', '.###.', '##...'];
+  // Built once per mark: [col, row] dot lists. A recipe's sign plate
+  // names its mark by key (the piece's `sign` field), so a second tower
+  // is one glyph row and one entry here — no new draw code. A part
+  // wrapped { acc: rows } lands in the ACCENT list and takes the accent
+  // ink — BNY's teal arrow against white letters, per the real logo.
+  const SIGN_MARKS = (() => {
+    const build = (parts) => {
+      const dots = [], accent = [];
+      let col = 0;
+      for (const part of parts) {
+        if (typeof part === 'number') { col += part; continue; } // a gap
+        const rows = part.acc || part;
+        const out = part.acc ? accent : dots;
+        const w = rows[0].length;
+        for (let r = 0; r < 5; r++) {
+          for (let c = 0; c < w; c++) {
+            if (rows[r][c] === '#') out.push([col + c, r]);
+          }
+        }
+        col += w;
+      }
+      return { dots, accent, cols: col };
+    };
+    const word = (s) => s.split('').flatMap((ch, i) => i ? [1, SIGN_FONT[ch]] : [SIGN_FONT[ch]]);
+    return {
+      prudential: build([SIGN_ROCK, 2, ...word('PRUDENTIAL')]),
+      bny: build([{ acc: SIGN_ARROW }, 2, ...word('BNY')]),
+    };
+  })();
+  // Inks per plate colour — the lit-sign night read the designer picked.
+  // An unknown plate colour falls back to Prudential blue ink (the
+  // blue-on-pale daytime colorway, kept for future use).
+  const SIGN_INK = { pruBlue: '#eaf2ff', bnyTeal: '#eafcf9', bnyNavy: '#f2f6fa' };
+  const SIGN_ACCENT_INK = { bnyNavy: '#45c7b8' }; // the teal arrow
 
   // A diagonal segment: thin sheared quad from (u0,v0) to (u1,v1) with
   // thickness tv along B — the primitive behind marble veins and wavy
@@ -1287,6 +1372,88 @@
         if (amt > 0 && Math.max(tp.sxy, lsy, tp.sz) >= STROKE_MIN) {
           drawMaterialTexture(ctx, fam, amt, opacity, tp, ref, ux, uy, uz,
             xVisible, yVisible, tp.sxy, lsy, tp.sz, li, !!ROUGH_STONE[colorKey]);
+        }
+      }
+      // The sign — flagged pieces only (the Prudential band). Drawn on
+      // the BROAD face (which axis that is survives quarter turns), with
+      // the column order flipped whenever the face's screen basis points
+      // left, so the wordmark always reads forward — like a real sign
+      // painted on both faces. Ink keys off the plate colour: a blue
+      // plate takes pale ink, a pale plate takes Prudential blue.
+      if (tp.sign && SIGN_MARKS[tp.sign]) {
+        const mark = SIGN_MARKS[tp.sign];
+        const lsy = tp.sy != null ? tp.sy : tp.sxy;
+        const broadX = tp.sxy >= lsy; // plate runs along x (else y, after a quarter turn)
+        const A = broadX ? ux : uy;
+        const o = broadX
+          ? (yVisible ? { x: ref.x + uy.x, y: ref.y + uy.y } : ref)
+          : (xVisible ? { x: ref.x + ux.x, y: ref.y + ux.y } : ref);
+        const flip = A.x < 0;
+        const colW = 0.92 / mark.cols;
+        const rowH = 0.60 / 5, vBot = 0.20; // letters fill the band's middle
+        const stamp = (dots) => {
+          ctx.beginPath();
+          for (const [c, r] of dots) {
+            const u = 0.04 + (flip ? mark.cols - 1 - c : c) * colW;
+            texMark(ctx, o, A, uz, u, vBot + (4 - r) * rowH, colW, rowH);
+          }
+          ctx.globalAlpha = opacity * 0.95;
+          ctx.fill();
+        };
+        ctx.fillStyle = SIGN_INK[colorKey] || '#3567b2';
+        stamp(mark.dots);
+        if (mark.accent.length) {
+          ctx.fillStyle = SIGN_ACCENT_INK[colorKey] || SIGN_INK[colorKey] || '#3567b2';
+          stamp(mark.accent);
+        }
+      }
+      // Windows — flagged pieces (the office towers). A curtain-wall
+      // grid on BOTH visible side faces: dark glass punches with a
+      // sparse scatter of warm lit windows (someone is working late).
+      // The lit set is seeded on the piece's LOGICAL cell + a per-face
+      // term, so it never changes under rotation, reload or the
+      // ceremony pop — the anti-crawl contract, same as the material
+      // marks. tp.win is the PARAPET height in cells: windows stop
+      // that far below the piece top, so the crown band stays blank on
+      // every face (the sign plates cover only the broad ones).
+      // Two fills total: all dark punches in one batch, all lit in one.
+      if (tp.win) {
+        const lsy = tp.sy != null ? tp.sy : tp.sxy;
+        const H = tp.sz;
+        const CP = 0.17, CW = 0.10; // column pitch / window width, in cells
+        const RP = 0.23, RH = 0.13; // row pitch / window height
+        const usable = H - tp.win - 0.10;
+        const nRows = Math.max(1, Math.floor(usable / RP));
+        const hx = Math.round(tp.gx * 16), hy = Math.round(tp.gy * 16), hz = Math.round(tp.gz * 16);
+        const faces = [
+          { o: xVisible ? { x: ref.x + ux.x, y: ref.y + ux.y } : ref,
+            A: uy, W: lsy, rnd: E.hashRand(hx + 11, hy, hz) },
+          { o: yVisible ? { x: ref.x + uy.x, y: ref.y + uy.y } : ref,
+            A: ux, W: tp.sxy, rnd: E.hashRand(hx, hy + 13, hz) },
+        ];
+        const lit = [];
+        ctx.beginPath();
+        for (const f of faces) {
+          const nCols = Math.floor((f.W - 0.10) / CP);
+          if (nCols < 1) continue;
+          const u0 = (f.W - (nCols * CP - (CP - CW))) / 2;
+          for (let c = 0; c < nCols; c++) {
+            for (let r = 0; r < nRows; r++) {
+              const q = [f.o, f.A, (u0 + c * CP) / f.W, (0.10 + r * RP) / H, CW / f.W, RH / H];
+              if (f.rnd() < 0.09) lit.push(q);
+              else texMark(ctx, q[0], q[1], uz, q[2], q[3], q[4], q[5]);
+            }
+          }
+        }
+        ctx.globalAlpha = opacity * 0.45;
+        ctx.fillStyle = '#1d2433'; // night glass — cool dark against the warm stone
+        ctx.fill();
+        if (lit.length) {
+          ctx.beginPath();
+          for (const q of lit) texMark(ctx, q[0], q[1], uz, q[2], q[3], q[4], q[5]);
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#ffdf9c'; // the late shift
+          ctx.fill();
         }
       }
     }
