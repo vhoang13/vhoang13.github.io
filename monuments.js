@@ -21,8 +21,9 @@
   // win?, mark?] — footprint is [sx, sy] (rectangular; a plain number
   // means square, and a quarter turn swaps the axes at instantiate).
   // mark is a face PATTERN drawBlock paints ('lattice', 'mullion',
-  // 'windows', 'arcade', 'terrace', and the axis-carrying 'gateX'/'gateY',
-  // 'terraceX'/'terraceY' — a trailing X/Y is an axis in MODEL space and
+  // 'windows', 'arcade', 'terrace', 'masonry', 'dentil', 'panes', and the
+  // axis-carrying 'gateX'/'gateY', 'terraceX'/'terraceY', 'doorX'/'doorY',
+  // 'archX'/'archY', 'vaultX'/'vaultY', 'fanX'/'fanY' — a trailing X/Y is an axis in MODEL space and
   // instantiate swaps it on odd quarter turns).
   // Fractional dx/dy shift the cube center off-cell; fractional dz
   // stacks partial cubes. sign NAMES the pixel wordmark a plate carries
@@ -52,21 +53,38 @@
         [0, 2, 0, '*'], [1, 2, 0, '*'], [2, 2, 0, '*'],
         [1, 1, 1, '*'],
       ],
-      // Giza: stepped limestone courses (per-course tonal jitter comes
-      // free from the shade channel), a dark entrance notch, and the
-      // gilded pyramidion — real pyramidions were gold-sheathed.
-      model: [
-        [1, 1, 0,    [3.0, 3.0],   0.34, 'stone'],
-        [1, 1, 0.34, [2.64, 2.64], 0.32, 'stone'],
-        [1, 1, 0.66, [2.28, 2.28], 0.31, 'stone'],
-        [1, 1, 0.97, [1.9, 1.9],   0.3,  'stone'],
-        [1, 1, 1.27, [1.5, 1.5],   0.28, 'stone'],
-        [1, 1, 1.55, [1.1, 1.1],   0.26, 'stone'],
-        [1, 1, 1.81, [0.7, 0.7],   0.24, 'stone'],
-        [1, 1, 2.05, [0.36, 0.36], 0.2,  'stone'],
-        [1, -0.53, 0.12, [0.44, 0.06], 0.42, 'stoneDark'], // entrance notch (face plate)
-        [1, 1, 2.25, [0.3, 0.3],   0.28, 'gold', true],  // pyramidion
-      ],
+      // Rebuilt (session 23) from the voxel reference: fourteen thin
+      // limestone courses, each strictly inside and above the one below
+      // (zero overhang — the arrangement that has always swept clean),
+      // with the stone BLOCKS painted on by the 'masonry' mark (the stone
+      // material's ashlar lines never fire on faces this short). A pale
+      // smooth casing cap and the gilded pyramidion on top. The doorway
+      // is a real projecting frame ('doorY' painted opening) standing on
+      // the first ledge, and two lamp braziers flank it — all three sit
+      // fully on the 0.094 ledge INSIDE the footprint, so the pyramid
+      // has no spill at all (the old entrance plate's allowlist entry is
+      // gone). Sphinx and palms deliberately not built (Viet's call).
+      // Per-course tonal variation comes free from the shade channel.
+      model: (() => {
+        const P = [];
+        const box = (x, y, z, sx, sy, sz, color, glow, mark) =>
+          P.push(mark ? [x, y, z, [sx, sy], sz, color, !!glow, '', 0, mark]
+                      : glow ? [x, y, z, [sx, sy], sz, color, true] : [x, y, z, [sx, sy], sz, color]);
+        const EPS = 0.006, N = 14, CH = 0.157, H0 = 1.5, HN = 0.24;
+        const half = (i) => H0 - (H0 - HN) * i / (N - 1);        // half-width of course i
+        for (let i = 0; i < N; i++) box(1, 1, i * CH, 2 * half(i), 2 * half(i), CH - EPS, 'limestone', false, 'masonry');
+        const zc = N * CH;
+        box(1, 1, zc, 0.40, 0.40, 0.11 - EPS, 'limestoneCap');         // casing cap
+        box(1, 1, zc + 0.11, 0.30, 0.30, 0.11 - EPS, 'limestoneCap');
+        box(1, 1, zc + 0.22, 0.28, 0.28, 0.20, 'gold', true);           // pyramidion
+        // Portal + braziers on the ledge atop course index 1 (y from 1-half(1)
+        // to 1-half(2), z = 2*CH), backs against course 2's south face.
+        const ledgeIn = 1 - half(2);
+        const ledgeZ = 2 * CH;                                           // top of course index 1
+        box(1, ledgeIn - 0.045, ledgeZ, 0.56, 0.09, 0.46, 'limestoneCap', false, 'doorY');
+        for (const dx of [-0.45, 0.45]) box(1 + dx, ledgeIn - 0.047, ledgeZ, 0.09, 0.09, 0.09, 'lamp', true);
+        return P;
+      })(),
     },
     {
       id: 'torii',
@@ -328,30 +346,40 @@
       // Cost, accepted: a RED arc is impossible until the torii is
       // discovered — the same bargain the towers already make.
       sameColor: true,
-      // Cream marble: plinths, piers with raised relief panels (they
-      // must protrude — a correct sorter hides embedded detail), frieze,
-      // cornice, attic, top cornice.
-      // 2026-08-27 mass pass: 38% of its six cubes. The doorway IS the
-      // monument, so the piers take their mass in DEPTH (0.48→0.66) and
-      // only modestly in width (0.5→0.56, keeping a 0.44 opening); the
-      // superstructure deepens to match. Relief plates re-butted to the
-      // new pier faces (y 0.17 / 0.83).
-      model: [
-        [0, 0, 0, [0.68, 0.78], 0.25, 'marbleShadow'],
-        [1, 0, 0, [0.68, 0.78], 0.25, 'marbleShadow'],
-        [0, 0, 0.25, [0.56, 0.66], 1.65, 'marble'],
-        [1, 0, 0.25, [0.56, 0.66], 1.65, 'marble'],
-        // Relief panels: one plate per pier FACE (a buried two-sided
-        // panel showed through the pier from behind)
-        [0, -0.365, 0.55, [0.4, 0.07], 0.75, 'marbleShadow'],
-        [0, 0.365, 0.55, [0.4, 0.07], 0.75, 'marbleShadow'],
-        [1, -0.365, 0.55, [0.4, 0.07], 0.75, 'marbleShadow'],
-        [1, 0.365, 0.55, [0.4, 0.07], 0.75, 'marbleShadow'],
-        [0.5, 0, 1.9, [2.0, 0.72], 0.28, 'marble'],       // frieze band
-        [0.5, 0, 2.18, [2.15, 0.76], 0.14, 'marbleShadow'],
-        [0.5, 0, 2.32, [1.95, 0.7], 0.45, 'marble'],      // attic
-        [0.5, 0, 2.77, [2.05, 0.74], 0.12, 'marbleShadow'],
-      ],
+      // Cream marble. Rebuilt (session 23b) from the voxel reference on
+      // the same 2x1 (Viet's call; lanterns, no trees). The piers, their
+      // 0.44 opening and the relief plates keep the 2026-08-27 mass-pass
+      // proportions. New: a SPANDREL block bridges the top of the gap
+      // and carries the great arch as paint ('vaultY' — a box painter
+      // cannot cut a curve, so the lit vault seen through the opening is
+      // painted on its faces; below it the gap is truly open); side
+      // arches painted on the piers' outer faces ('archX'); a frieze of
+      // lit niches ('windows'), a dentil cornice ('dentil'), an attic
+      // with a row of lit shields ('arcade'); four lamp lanterns on the
+      // plinth ledges (plinths deepened 0.78 -> 0.90 to seat them, still
+      // inside the footprint). The two cornice bands overhang the x ends
+      // by exactly what the allowlist already knew (0.075 / 0.025).
+      model: (() => {
+        const P = [];
+        const box = (x, y, z, sx, sy, sz, color, glow, mark) =>
+          P.push(mark ? [x, y, z, [sx, sy], sz, color, !!glow, '', 0, mark]
+                      : glow ? [x, y, z, [sx, sy], sz, color, true] : [x, y, z, [sx, sy], sz, color]);
+        const EPS = 0.006, M1 = 'marble', M2 = 'marbleShadow';
+        for (const x of [0, 1]) {
+          box(x, 0, 0, 0.68, 0.90, 0.22 - EPS, M2);                              // plinth
+          box(x, 0, 0.22, 0.56, 0.66, 1.65 - EPS, M1, false, 'archX');           // pier, side arch painted
+          box(x, -0.365, 0.55, 0.40, 0.07, 0.75, M2);                            // relief plates, one per face
+          box(x, 0.365, 0.55, 0.40, 0.07, 0.75, M2);
+          for (const sy of [-1, 1]) box(x + (x ? 0.29 : -0.29), sy * 0.39, 0.22, 0.10, 0.10, 0.10, 'lamp', true); // lanterns
+        }
+        box(0.5, 0, 1.30, 0.44 - EPS, 0.66, 0.57 - EPS, M1, false, 'vaultY');  // spandrel: the painted vault
+        box(0.5, 0, 1.87, 2.0, 0.72, 0.12 - EPS, M2);                             // architrave
+        box(0.5, 0, 1.99, 2.0, 0.72, 0.30 - EPS, M1, false, 'windows');           // frieze, lit niches
+        box(0.5, 0, 2.29, 2.15, 0.76, 0.12 - EPS, M2, false, 'dentil');           // dentil cornice
+        box(0.5, 0, 2.41, 1.95, 0.70, 0.42 - EPS, M1, false, 'arcade');           // attic, the shield row
+        box(0.5, 0, 2.83, 2.05, 0.74, 0.10, M2);                                  // top cornice
+        return P;
+      })(),
     },
     {
       id: 'temple',
@@ -572,29 +600,34 @@
         [0, 1, 0, 'glass'], [1, 1, 0, 'glass'], [2, 1, 0, 'glass'],
       ],
       // Paxton's documented scheme: the iron frame was pale blue with
-      // yellow trim, the girders red. Glass tiers, then the barrel
-      // transept running crosswise, gold finial.
-      model: [
-        [1, 0.5, 0, [3.1, 2.1], 0.14, 'girderRed'],        // girder base
-        // Hall ends at the trim; ribs are FACE plates (they used to
-        // pierce the glass hall clean through, out both ends)
-        [1, 0.5, 0.14, [3.0, 2.0], 0.76, 'glass'],         // main hall
-        [1, -0.53, 0.2, [3.0, 0.06], 0.68, 'paleIronBlue'], // front ribs
-        [1, 1.53, 0.2, [3.0, 0.06], 0.68, 'paleIronBlue'],  // rear ribs
-        [1, 0.5, 0.9, [3.04, 2.04], 0.06, 'trimYellow'],   // trim line (hall→trim→tier stack)
-        [1, 0.5, 0.96, [2.4, 1.6], 0.48, 'glass'],         // second tier
-        [1, -0.33, 1.0, [2.46, 0.06], 0.4, 'paleIronBlue'],
-        [1, 0.5, 1.44, [2.44, 1.64], 0.05, 'trimYellow'],
-        // Transept depth is clamped to the 2-cell footprint (was 2.1/2.06).
-        // Overhanging even 0.05 put these two plates into the airspace of the
-        // neighbouring cell's blocks, which closed a painter's cycle through
-        // the tier stack — 8 wrongly-ordered pairs at 122.5deg, at every angle.
-        // Flush is the invariant: nothing in the roof may cross y=0 or y=2.
-        [1, 0.5, 1.49, [1.15, 2.0], 0.35, 'glass'],        // barrel transept
-        [1, 0.5, 1.84, [0.85, 2.0], 0.25, 'glass'],
-        [1, 0.5, 2.09, [0.5, 2.0], 0.18, 'glass'],
-        [1, 0.5, 2.27, [0.24, 0.24], 0.22, 'gold', true],  // finial
-      ],
+      // yellow trim, the girders red. Rebuilt (session 23c) from the voxel
+      // reference on the same 3x2 (Viet: stay on the site, warm interior).
+      // The glazing is PAINT now ('panes': a warm lit window in every bay,
+      // the iron ribs and a transom over it), so the old rib face-plates
+      // that spilled 0.06 are gone; the barrel transept's end faces carry
+      // the fan window ('fanY'); four lamp pinnacles stand on the hall's
+      // roof corners, inside the footprint. THE FLUSH-ROOF RULE STANDS:
+      // nothing in the roof may cross the 2-cell depth (an 0.05 overhang
+      // closed a painter's cycle through the tier stack at every angle).
+      model: (() => {
+        const P = [];
+        const box = (x, y, z, sx, sy, sz, color, glow, mark) =>
+          P.push(mark ? [x, y, z, [sx, sy], sz, color, !!glow, '', 0, mark]
+                      : glow ? [x, y, z, [sx, sy], sz, color, true] : [x, y, z, [sx, sy], sz, color]);
+        const EPS = 0.006, G = 'glass', T = 'trimYellow';
+        box(1, 0.5, 0, 3.1, 2.1, 0.14 - EPS, 'girderRed');                  // girder base (0.05 spill, as before)
+        box(1, 0.5, 0.14, 3.0, 2.0, 0.76 - EPS, G, false, 'panes');          // main hall, glazed
+        box(1, 0.5, 0.90, 3.04, 2.04, 0.06 - EPS, T);                        // trim line
+        for (const dx of [-1.40, 1.40]) for (const dy of [-0.90, 0.90])       // pinnacle lanterns on the roof corners
+          box(1 + dx, 0.5 + dy, 0.96, 0.10, 0.10, 0.12, 'lamp', true);
+        box(1, 0.5, 0.96, 2.4, 1.6, 0.48 - EPS, G, false, 'panes');          // second tier, glazed
+        box(1, 0.5, 1.44, 2.44, 1.64, 0.05 - EPS, T);
+        box(1, 0.5, 1.49, 1.15, 2.0, 0.35 - EPS, G, false, 'fanY');          // barrel transept, fan windows on its ends
+        box(1, 0.5, 1.84, 0.85, 2.0, 0.25 - EPS, G, false, 'panes');
+        box(1, 0.5, 2.09, 0.5, 2.0, 0.18 - EPS, G);
+        box(1, 0.5, 2.27, 0.24, 0.24, 0.22, 'gold', true);                   // finial
+        return P;
+      })(),
     },
     {
       id: 'doghouse',
@@ -1933,12 +1966,13 @@
       E.addPoint(plaque.gx + 0.5, plaque.gy + 0.5, plaque.gz - 0.15, 2.2, '255,200,110', 0.4 * f, { faces: true, ground: true });
     },
     crystal(mon, t, time, rm) {
-      // A greenhouse at night keeps a cool light on inside.
+      // The palace lit from inside at night — warm gold (Viet, session
+      // 23c; it was a cool greenhouse blue before the glazing was painted).
       const c = centreOf(mon);
       const f = rm ? 1 : 0.8 + 0.2 * Math.sin(time * 0.7);
       const p = E.toScreen(c.gx, c.gy, 0.6);
-      E.addLight(p.x, p.y, t * 2.6, '190,225,255', 0.11 * f);
-      E.addPoint(c.gx, c.gy, 0.6, 3, '190,225,255', 0.3 * f, { faces: true, ground: true });
+      E.addLight(p.x, p.y, t * 2.6, '255,205,130', 0.12 * f);
+      E.addPoint(c.gx, c.gy, 0.6, 3, '255,205,130', 0.32 * f, { faces: true, ground: true });
     },
   };
 

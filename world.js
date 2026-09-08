@@ -56,6 +56,8 @@
     girderRed:    { top: '#c25548', right: '#8e372d', front: '#aa463a' }, // crystal palace girders
     graniteRose:  { top: '#d9a08e', right: '#a06a5c', front: '#c08575' }, // obelisk (Luxor granite)
     sand:         { top: '#e2d3ab', right: '#ab9c77', front: '#c9ba92' }, // arena floor
+    limestone:    { top: '#e6cf9a', right: '#ab8f57', front: '#cdb478' }, // pyramid courses (warm Giza sand)
+    limestoneCap: { top: '#f2e3ba', right: '#bda877', front: '#ddcb9c' }, // pyramid casing cap + portal frame
     water:        { top: '#8fc6ee', right: '#4f86b8', front: '#68a3d6' }, // gardens pools
     palm:         { top: '#5f9a3c', right: '#39602a', front: '#4c7d33' }, // gardens palm crowns (not 'grass': no flowers)
     pruBlue:      { top: '#79a8e0', right: '#4a6da3', front: '#618cc4' }, // Prudential sign — lit corporate blue
@@ -962,6 +964,7 @@
     copper: 'metal', ironBronze: 'metal', paleIronBlue: 'metal',
     trimYellow: 'metal', girderRed: 'metal',
     sand: 'sand',
+    limestone: 'stone', limestoneCap: 'stone',
   };
   // Per-family designer knob (vh-dev-material {family, amount}; 0 = off)
   W.MAT = { stone: 1, brick: 1, marble: 1, wood: 1, metal: 1, sand: 1 };
@@ -1949,6 +1952,152 @@
           }
           ctx.globalAlpha = opacity * 0.9;
           ctx.fillStyle = '#4f7d38'; // hanging vines
+          ctx.fill();
+        } else if (tp.mark === 'masonry') {
+          // The pyramid's stone blocks: vertical joints world-anchored at
+          // one pitch (like lattice), staggered half a pitch on alternate
+          // COURSES (row = the piece's own index, gz / sz, so the bond
+          // runs continuously up the steps instead of restarting at each
+          // one), plus a line along the top of any face tall enough. The
+          // ashlar branch of the stone material deliberately draws no
+          // vertical joints and never fires on faces this short; this is
+          // the reference's blockwork. Soft and matte — stone, not brick.
+          const P = 0.30, JW = 0.02;
+          const row = Math.round(tp.gz / Math.max(tp.sz, 0.05));
+          const off = (row % 2) ? P / 2 : 0;
+          for (const f of faces) {
+            const c0 = Math.floor((f.a0 - off) / P), c1 = Math.ceil((f.a0 + f.W - off) / P);
+            for (let c = c0; c <= c1; c++) {
+              const u0 = c * P + off - f.a0;
+              if (u0 < 0.02 || u0 + JW > f.W - 0.02) continue;
+              texMark(ctx, f.o, f.A, uz, u0 / f.W, 0, JW / f.W, 1);
+            }
+            if (H >= 0.12) texMark(ctx, f.o, f.A, uz, 0, (H - 0.022) / H, 1, 0.016 / H);
+          }
+          ctx.globalAlpha = opacity * 0.38;
+          ctx.fillStyle = '#8a7042';
+          ctx.fill();
+        } else if (tp.mark === 'doorX' || tp.mark === 'doorY') {
+          // The pyramid's portal, on the named face only: a dark opening
+          // with a warm light in its foot, and a paler lintel above it.
+          const f = faces[tp.mark === 'doorY' ? 1 : 0];
+          const OW = 0.22, OH = 0.28, LW = 0.36, LH = 0.06, GL = 0.08;
+          const cu = f.W / 2;
+          texMark(ctx, f.o, f.A, uz, (cu - OW / 2) / f.W, 0.03 / H, OW / f.W, OH / H);
+          ctx.globalAlpha = opacity * 0.92;
+          ctx.fillStyle = '#2a2118';
+          ctx.fill();
+          ctx.beginPath();
+          texMark(ctx, f.o, f.A, uz, (cu - GL / 2) / f.W, 0.05 / H, GL / f.W, GL / H);
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#ffdf9c';
+          ctx.fill();
+          ctx.beginPath();
+          texMark(ctx, f.o, f.A, uz, (cu - LW / 2) / f.W, (0.03 + OH + 0.01) / H, LW / f.W, LH / H);
+          ctx.globalAlpha = opacity * 0.7;
+          ctx.fillStyle = '#f2e3ba';
+          ctx.fill();
+        } else if (tp.mark === 'vaultX' || tp.mark === 'vaultY') {
+          // The Arc's great arch: a box painter cannot cut a round
+          // opening, so the spandrel block bridging the piers carries the
+          // vault as PAINT — a full-face shadow wash, then the lit half
+          // disc rising from the bottom edge (the vault glowing through
+          // the opening, as in the reference), then a thin warmer rim.
+          const f = faces[tp.mark === 'vaultY' ? 1 : 0];
+          const cu = f.W / 2, R = Math.min(0.22, f.W / 2 - 0.02);
+          const pt = (u, v) => ({ x: f.o.x + f.A.x * (u / f.W) + uz.x * (v / H), y: f.o.y + f.A.y * (u / f.W) + uz.y * (v / H) });
+          const halfDisc = (r) => { let q = pt(cu - r, 0); ctx.moveTo(q.x, q.y); for (let i = 1; i <= 9; i++) { const t = Math.PI - (i / 10) * Math.PI; q = pt(cu + r * Math.cos(t), r * Math.sin(t)); ctx.lineTo(q.x, q.y); } q = pt(cu + r, 0); ctx.lineTo(q.x, q.y); ctx.closePath(); };
+          texMark(ctx, f.o, f.A, uz, 0, 0, 1, 1);
+          ctx.globalAlpha = opacity * 0.55;
+          ctx.fillStyle = '#2a2118';
+          ctx.fill();
+          ctx.beginPath(); halfDisc(R);
+          ctx.globalAlpha = opacity * 0.85;
+          ctx.fillStyle = '#ffdf9c';
+          ctx.fill();
+          ctx.beginPath(); halfDisc(Math.max(0.02, R - 0.04));
+          ctx.globalAlpha = opacity * 0.5;
+          ctx.fillStyle = '#e8c46a';
+          ctx.fill();
+        } else if (tp.mark === 'archX' || tp.mark === 'archY') {
+          // A single arch opening at the foot of the named face (the
+          // Arc's side arches through the piers), lit from the plaza.
+          const f = faces[tp.mark === 'archY' ? 1 : 0];
+          const AW = 0.30, AH = 0.62, GL = 0.08, cu = f.W / 2;
+          archPath(f, cu, AW, AH);
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#2a2118';
+          ctx.fill();
+          ctx.beginPath();
+          texMark(ctx, f.o, f.A, uz, (cu - GL / 2) / f.W, 0.03 / H, GL / f.W, GL / H);
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#ffdf9c';
+          ctx.fill();
+        } else if (tp.mark === 'dentil') {
+          // Dentil cornice: dark teeth along the lower third of both
+          // faces, world-anchored so they run around the corner in step.
+          const P = 0.10, TW = 0.05, TH = Math.min(0.05, H * 0.45);
+          for (const f of faces) {
+            const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
+            for (let c = c0; c <= c1; c++) {
+              const u0 = c * P + (P - TW) / 2 - f.a0;
+              if (u0 < 0.01 || u0 + TW > f.W - 0.01) continue;
+              texMark(ctx, f.o, f.A, uz, u0 / f.W, 0.02 / H, TW / f.W, TH / H);
+            }
+          }
+          ctx.globalAlpha = opacity * 0.6;
+          ctx.fillStyle = '#2a2118';
+          ctx.fill();
+        } else if (tp.mark === 'panes') {
+          // The Crystal Palace's glazing: a warm lit window in every bay
+          // (the palace glowing from inside), then the iron ribs at one
+          // world-anchored pitch and a transom line across, painted over
+          // the light so the frame reads in front of the glass.
+          const P = 0.25, RW = 0.03, GW = 0.15;
+          const rows = [];
+          for (const f of faces) {
+            const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
+            for (let c = c0; c <= c1; c++) rows.push([f, c * P - f.a0]);
+          }
+          for (const [f, u] of rows) {
+            const g0 = u + (P - GW) / 2;
+            if (g0 < 0.01 || g0 + GW > f.W - 0.01) continue;
+            texMark(ctx, f.o, f.A, uz, g0 / f.W, 0.06 / H, GW / f.W, Math.max(0.04, H * 0.62) / H);
+          }
+          ctx.globalAlpha = opacity * 0.75;
+          ctx.fillStyle = '#ffdf9c';
+          ctx.fill();
+          ctx.beginPath();
+          for (const [f, u] of rows) {
+            if (u < 0.01 || u + RW > f.W - 0.01) continue;
+            texMark(ctx, f.o, f.A, uz, u / f.W, 0, RW / f.W, 1);
+          }
+          for (const f of faces) texMark(ctx, f.o, f.A, uz, 0, (H * 0.72) / H, 1, 0.02 / H);
+          ctx.globalAlpha = opacity * 0.8;
+          ctx.fillStyle = '#5b6b80'; // Paxton's pale iron, in shadow
+          ctx.fill();
+        } else if (tp.mark === 'fanX' || tp.mark === 'fanY') {
+          // The transept's fan window on the named end face: a lit half
+          // disc with dark spokes radiating from its base.
+          const f = faces[tp.mark === 'fanY' ? 1 : 0];
+          const cu = f.W / 2, R = Math.min(H - 0.03, f.W / 2 - 0.03);
+          const pt = (u, v) => ({ x: f.o.x + f.A.x * (u / f.W) + uz.x * (v / H), y: f.o.y + f.A.y * (u / f.W) + uz.y * (v / H) });
+          let q = pt(cu - R, 0); ctx.moveTo(q.x, q.y);
+          for (let i = 1; i <= 11; i++) { const t = Math.PI - (i / 12) * Math.PI; q = pt(cu + R * Math.cos(t), R * Math.sin(t)); ctx.lineTo(q.x, q.y); }
+          q = pt(cu + R, 0); ctx.lineTo(q.x, q.y); ctx.closePath();
+          ctx.globalAlpha = opacity * 0.8;
+          ctx.fillStyle = '#ffdf9c';
+          ctx.fill();
+          ctx.beginPath();
+          for (let i = 1; i <= 5; i++) {
+            const t = Math.PI - (i / 6) * Math.PI, dx = Math.cos(t), dy = Math.sin(t), nx = -dy * 0.012, ny = dx * 0.012;
+            q = pt(cu + nx, ny); ctx.moveTo(q.x, q.y);
+            q = pt(cu + R * dx + nx, R * dy + ny); ctx.lineTo(q.x, q.y);
+            q = pt(cu + R * dx - nx, R * dy - ny); ctx.lineTo(q.x, q.y);
+            q = pt(cu - nx, -ny); ctx.lineTo(q.x, q.y); ctx.closePath();
+          }
+          ctx.globalAlpha = opacity * 0.8;
+          ctx.fillStyle = '#5b6b80';
           ctx.fill();
         } else if (tp.mark === 'mullion') {
           const P = 0.24, BW = 0.09;                  // window pitch, bar width (cells)
