@@ -55,6 +55,8 @@
     if (E._lightResize) E._lightResize();   // keep the light buffer in step
     if (E._shadowResize) E._shadowResize(); // and the shadow buffer
     if (E._holoResize) E._holoResize();     // and the hologram buffer
+    if (E._groundResize) E._groundResize(); // and the ground-light buffer
+    if (E.placeMoon) E.placeMoon();         // the moon clears the top-right controls
   }
   E.resize = resize;
   resize();
@@ -107,6 +109,7 @@
   // firework Clear) with zero per-frame allocation.
   const SPRITE_R = 32;
   const lightSprites = new Map();
+  E.lightSprite = (rgb) => lightSprite(rgb);
   function lightSprite(rgb) {
     let s = lightSprites.get(rgb);
     if (s) return s;
@@ -131,8 +134,160 @@
     lightCtx.drawImage(lightSprite(rgb), x - radius, y - radius, radius * 2, radius * 2);
   };
 
+  // Directional light sources the WORLD reacts to (drawBlock reads these
+  // and brightens the faces that face the beam). Cleared every frame;
+  // grid-space: origin (gx,gy,gz), unit direction (dx,dy), length, and
+  // the drop per cell of travel (a lighthouse beam tilts toward the sea).
+  E.beams = [];
+  E.beamLit = null;   // per-frame directional light from the beam (monuments.registerBeams)
+  E.addBeam = (b) => { E.beams.push(b); };
+
+  // ── The light list ───────────────────────────────────────────
+  // Every point light the WORLD reacts to (faces in drawBlock, pools on
+  // the ground). Grid space. Registration lands in the NEXT frame's list:
+  // most emitters register after the sorted world has drawn (drawGlows,
+  // fireflies, flashes), so a same-frame list would be empty when faces
+  // read it. One frame of lag on a lamp is invisible; one rule for all.
+  //   E.addPoint(gx, gy, gz, radius /*grid units*/, rgb /*'255,196,90'*/,
+  //              intensity, { faces, ground })
+  // The fill string is built once here, never per face in drawBlock.
+  E.lights = [];
+  let lightsNext = [];
+  E.addPoint = (gx, gy, gz, r, rgb, intensity, opts = {}) => {
+    if (intensity <= 0 || r <= 0) return;
+    lightsNext.push({ gx, gy, gz, r, rgb, intensity, fill: 'rgb(' + rgb + ')',
+      faces: opts.faces !== false, ground: !!opts.ground });
+  };
+  E.LIGHTS_ON = true; // vh-dev-light {lights:0} kill switch
+
+  // ── The cone as a picture ──────────────────────────────────
+  // One soft cone image, made once: an apex on the left spreading to the
+  // right, fading across its width and along its length (brightest at
+  // the source). Everything below maps this ONE image onto planes in the
+  // world with exact triangle-to-triangle transforms — the isometric
+  // projection is affine, so a cone lying on a plane is a plain skew of
+  // this picture. No per-frame gradients, no filled polygons.
+  const CONE_W = 256, CONE_H = 128;
+  E.CONE_W = CONE_W;
+  // Two along-axis profiles, one picture each:
+  //   shaft — brightest at the lamp, dispersing to NOTHING by the far end
+  //           (a searchlight thins into the night; it never ends in a line)
+  //   pool  — fades IN past the lamp's foot (the cone is above the ground
+  //           there) and out to nothing at the far end. Before this the
+  //           pool was the shaft sprite cut off at `near`: a straight
+  //           full-brightness edge across the grass.
+  const CONE_PROFILE = {
+    shaft: (t) => Math.pow(1 - t, 0.85) * Math.min(1, t * 12 + 0.15),
+  };
+  E.CONE_PROFILE = CONE_PROFILE; // dev: swap the curve, then E._coneReset()
+  const coneSprites = {};
+  E._coneReset = () => { for (const k in coneSprites) delete coneSprites[k]; };
+  function makeConeSprite(profile) {
+    const c = document.createElement('canvas');
+    c.width = CONE_W; c.height = CONE_H;
+    const x = c.getContext('2d');
+    const img = x.createImageData(CONE_W, CONE_H), d = img.data;
+    for (let py = 0; py < CONE_H; py++) {
+      for (let px = 0; px < CONE_W; px++) {
+        const t = px / (CONE_W - 1);
+        const hw = 3 + (CONE_H / 2 - 3) * t;
+        const dy = Math.abs(py + 0.5 - CONE_H / 2);
+        let a = Math.max(0, 1 - dy / hw);
+        a = Math.pow(a, 1.7) * profile(t);
+        const i = (py * CONE_W + px) * 4;
+        d[i] = 255; d[i + 1] = 226; d[i + 2] = 168; d[i + 3] = Math.round(a * 255);
+      }
+    }
+    x.putImageData(img, 0, 0);
+    return c;
+  }
+  // Affine map taking sprite triangle (s0,s1,s2) onto screen triangle (t0,t1,t2)
+  function affineTri(s0, s1, s2, t0, t1, t2) {
+    const ax = s1.x - s0.x, ay = s1.y - s0.y, bx = s2.x - s0.x, by = s2.y - s0.y;
+    const det = ax * by - ay * bx;
+    if (Math.abs(det) < 1e-9) return null;
+    const ux = t1.x - t0.x, uy = t1.y - t0.y, vx = t2.x - t0.x, vy = t2.y - t0.y;
+    // M maps (ax,ay)->(ux,uy), (bx,by)->(vx,vy)
+    const a = (ux * by - vx * ay) / det, c = (vx * ax - ux * bx) / det;
+    const b = (uy * by - vy * ay) / det, d = (vy * ax - uy * bx) / det;
+    return [a, b, c, d, t0.x - a * s0.x - c * s0.y, t0.y - b * s0.x - d * s0.y];
+  }
+  const S_APEX = { x: 0, y: CONE_H / 2 }, S_TOP = { x: CONE_W, y: 0 }, S_BOT = { x: CONE_W, y: CONE_H };
+  E.drawConeSlice = (ctx, tri, x0, x1, alpha, kind = 'shaft') => {
+    const coneSprite = coneSprites[kind] || (coneSprites[kind] = makeConeSprite(CONE_PROFILE[kind]));
+    const m = affineTri(S_APEX, S_TOP, S_BOT, tri[0], tri[1], tri[2]);
+    if (!m) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = alpha;
+    ctx.imageSmoothingEnabled = true;
+    ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+    ctx.drawImage(coneSprite, x0, 0, x1 - x0, CONE_H, x0, 0, x1 - x0, CONE_H);
+    ctx.restore();
+  };
+
+  // ── Ground light ─────────────────────────────────────────────
+  // The grass is a cached bitmap, so light that lands on the ground is
+  // painted live, here, after the moon shadows and before the world:
+  // point lights as a soft disc mapped onto the ground plane (E.fv.ux/uy
+  // ARE the ground basis, so the unit disc lands as the right iso
+  // ellipse), the lighthouse pool as the cone sprite. The lighthouse's
+  // shadows are punched OUT of its own pool before it joins the buffer —
+  // a shadow is the absence of that light, nothing else. Lights stack
+  // source-over inside; one 'lighter' composite, clipped to the platform.
+  const groundCanvas = document.createElement('canvas');
+  const groundCtx = groundCanvas.getContext('2d');
+  E.GROUND_GAIN = 1.0;
+  E._groundResize = () => {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    groundCanvas.width = Math.max(1, Math.ceil(E.W * dpr / 2));
+    groundCanvas.height = Math.max(1, Math.ceil(E.H * dpr / 2));
+    groundCtx.setTransform(dpr / 2, 0, 0, dpr / 2, 0, 0);
+  };
+  E._groundResize();
+  let groundUsed = false;
+  E.groundDraw = (dip) => {
+    groundUsed = false;
+    groundCtx.save();
+    groundCtx.setTransform(1, 0, 0, 1, 0, 0);
+    groundCtx.clearRect(0, 0, groundCanvas.width, groundCanvas.height);
+    groundCtx.restore();
+    const fv = E.fv;
+    for (const l of E.lights) {
+      if (!l.ground) continue;
+      const c = E.toScreen(l.gx, l.gy, -dip), s = l.r / SPRITE_R;
+      groundCtx.save();
+      groundCtx.transform(fv.ux.x * s, fv.ux.y * s, fv.uy.x * s, fv.uy.y * s, c.x, c.y);
+      groundCtx.globalAlpha = Math.min(1, l.intensity * 0.55 * E.GROUND_GAIN);
+      groundCtx.drawImage(lightSprite(l.rgb), -SPRITE_R, -SPRITE_R);
+      groundCtx.restore();
+      groundUsed = true;
+    }
+  };
+  E.groundComposite = (clipPoly) => {
+    if (!groundUsed) return;
+    const c = E.ctx;
+    c.save();
+    if (clipPoly && clipPoly.length >= 3) {
+      c.beginPath();
+      c.moveTo(clipPoly[0].x, clipPoly[0].y);
+      for (let k = 1; k < clipPoly.length; k++) c.lineTo(clipPoly[k].x, clipPoly[k].y);
+      c.closePath();
+      c.clip();
+    }
+    c.imageSmoothingEnabled = true;
+    c.globalCompositeOperation = 'lighter';
+    c.globalAlpha = 1;
+    c.drawImage(groundCanvas, 0, 0, groundCanvas.width, groundCanvas.height, 0, 0, E.W, E.H);
+    c.restore();
+  };
+
   // Top of the frame: wipe the buffer for this frame's lights.
   E.lightBegin = () => {
+    E.beams.length = 0;
+    E.beamLit = null;
+    E.lights = E.LIGHTS_ON ? lightsNext : [];
+    lightsNext = [];
     lightCtx.save();
     lightCtx.setTransform(1, 0, 0, 1, 0, 0);
     lightCtx.globalCompositeOperation = 'source-over';
@@ -169,7 +324,15 @@
   // Screen position + drawn radius were copy-pasted in four files; the
   // light maths, the drawn moon, the rim highlight and the silhouettes
   // must all agree or the shadows point away from the visible moon.
-  E.MOON = { fx: 0.82, fy: 0.13, r: 40 };
+  E.MOON = { fx: 0.82, fy: 0.19, r: 40 };
+  // The HUD's control row lives in the top-right corner of every viewport.
+  // On a phone the moon moves down and inward so it never sits behind the
+  // buttons (the audit's first finding). Called from resize().
+  E.placeMoon = () => {
+    if (E.W < 600) { E.MOON.fx = 0.68; E.MOON.fy = 0.24; }
+    else { E.MOON.fx = 0.82; E.MOON.fy = 0.19; }
+  };
+  E.placeMoon();
   // Altitude in grid units. THE mood knob: lower = longer raking shadows
   // AND darker sides/tops (both derive from it in updateLightInfo), so
   // one number keeps light and shadow physically consistent.
@@ -266,6 +429,7 @@
     const d = -(dip || 0);
     const poly = convexHull(pts).map(p => E.toScreen(p[0], p[1], d));
     shadowQuads.push({ poly, alpha, h: tz });
+
   };
 
   // Three blur buckets: contact shadows stay tight and grounded, high
@@ -339,6 +503,12 @@
   // Empty frames skip the blit entirely (the shadow pass's early-out).
   const holoCanvas = document.createElement('canvas');
   const holoCtx = holoCanvas.getContext('2d');
+  // The edge buffer: the hologram erased by itself shifted a pixel each
+  // way leaves only the OUTLINE of the union — a crisp silhouette with
+  // no internal seams, which is what makes the shape legible before it
+  // becomes stone. Four half-res drawImages, only while a ceremony runs.
+  const holoEdgeCanvas = document.createElement('canvas');
+  const holoEdgeCtx = holoEdgeCanvas.getContext('2d');
   let holoUsed = false;
 
   E._holoResize = () => {
@@ -346,6 +516,8 @@
     holoCanvas.width = Math.max(1, Math.ceil(E.W * dpr / 2));
     holoCanvas.height = Math.max(1, Math.ceil(E.H * dpr / 2));
     holoCtx.setTransform(dpr / 2, 0, 0, dpr / 2, 0, 0);
+    holoEdgeCanvas.width = holoCanvas.width;
+    holoEdgeCanvas.height = holoCanvas.height;
   };
   E._holoResize();
 
@@ -362,14 +534,29 @@
   // the bodyBoxes class of bug).
   E.holoDraw = (fn) => { holoUsed = true; fn(holoCtx); };
 
-  E.holoComposite = (strength) => {
+  E.holoComposite = (strength, edge = 1) => {
     if (!holoUsed || strength <= 0) return;
     const c = E.ctx;
+    const w = holoCanvas.width, h = holoCanvas.height;
+    if (edge > 0) {
+      const e = holoEdgeCtx;
+      e.setTransform(1, 0, 0, 1, 0, 0);
+      e.globalCompositeOperation = 'source-over';
+      e.clearRect(0, 0, w, h);
+      e.drawImage(holoCanvas, 0, 0);
+      e.globalCompositeOperation = 'destination-out';
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) e.drawImage(holoCanvas, dx, dy);
+    }
     c.save();
     c.imageSmoothingEnabled = true; // half-res buffer upscales; smooth it
     c.globalCompositeOperation = 'lighter';
     c.globalAlpha = Math.min(1, strength);
-    c.drawImage(holoCanvas, 0, 0, holoCanvas.width, holoCanvas.height, 0, 0, E.W, E.H);
+    c.drawImage(holoCanvas, 0, 0, w, h, 0, 0, E.W, E.H);
+    if (edge > 0) {
+      c.globalAlpha = Math.min(1, strength * edge);
+      c.drawImage(holoEdgeCanvas, 0, 0, w, h, 0, 0, E.W, E.H);
+      c.drawImage(holoEdgeCanvas, 0, 0, w, h, 0, 0, E.W, E.H); // twice: the ring runs hot
+    }
     c.restore();
   };
 

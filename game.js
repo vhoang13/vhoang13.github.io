@@ -100,6 +100,9 @@
   // first-in-chain risk, and a mis-chat is one Escape to undo.
   const GOFER_TOUCH_SLOP = 22; // CSS px radius ≈ a 44px effective target
   function hitTestGofer(sx, sy, coarse) {
+    // A hidden tab freezes the loop with E.fv empty; the first pointer
+    // event after it comes back must not throw (seen in the console).
+    if (!E.fv || !E.fv.ux) return null;
     const boxes = VH.gofer.hitBoxes();
     if (!boxes) return null;
     for (let i = 0; i < boxes.length; i++) {
@@ -655,7 +658,12 @@
     if (e.pointerId !== activePointerId) return;
     activePointerId = null;
 
-    // Pressed a monument and released without moving: nothing happens
+    // Pressed a monument and released without moving: a TAP. On the two
+    // company towers that opens their summary; every other monument
+    // still does nothing, exactly as before (the press was an armed drag
+    // that never started). Same !didDrag && !cancelled contract the
+    // gofer tap keeps, so dragging a tower still just moves it.
+    if (pendingMonument && !didDrag && !cancelled) openCompany(pendingMonument.id);
     pendingMonument = null;
 
     if (dragMon) {
@@ -759,6 +767,7 @@
         pendingGofer = false;
         canvas.style.cursor = 'default';
         closeCodex(); // one panel at a time — they share the right edge
+        closeCompany({ silent: true });
         VH.chat.open();
         return;
       }
@@ -894,8 +903,10 @@
       selectSlot(['color', 'grass', 'lamp', 'glass'][+k - 1]);
     }
     else if (k === 'Escape' || k === 'Esc') {
-      // Chat first, then codex — most recently opened thing closes first
+      // Chat, then the company panel, then the codex — only one is ever
+      // open, so the order is just a deterministic sweep.
       if (VH.chat.isOpen()) VH.chat.close();
+      else if (!document.getElementById('company').hidden) closeCompany();
       else closeCodex(); // hoisted; defined with the codex wiring
     }
   });
@@ -994,6 +1005,82 @@
     W.save();
   });
 
+  // ── Company panel ───────────────────────────────────────────
+  // The BNY and Prudential towers are Viet's two old jobs. Tapping one
+  // used to do nothing (the press arms a DRAG, which only starts on
+  // movement), so the towers read as scenery. Now a tap tells you what
+  // the job was.
+  //
+  // The copy is lifted VERBATIM from the case-study pages so the claims
+  // have ONE source: a correction on work/bny/ must be mirrored here,
+  // and keeping the wording identical makes a drift obvious on sight.
+  // Nothing here asserts anything the pages do not already say — the
+  // bullet list keeps the pages' own future tense, because those case
+  // studies are still unwritten.
+  const COMPANIES = {
+    bny: {
+      name: 'BNY',
+      role: 'Head of Design, Wealth · 2021–2025',
+      lead: 'I led six designers on the software wealth managers use to look ' +
+            'after other people\u2019s money, and the software those clients use ' +
+            'to look after their own.',
+      label: 'The case study will cover',
+      points: [
+        'Counting the work before designing it, and why an inventory changed the strategy.',
+        'The finding that reframed the program: the expensive thing was not how long a flow took, it was not knowing where it was.',
+        'Which flows we deliberately left manual, and why the human checkpoint was the control.',
+        'Setting the design standards for the bank\u2019s AI wealth tools: what a system is allowed to say about someone\u2019s money.',
+      ],
+      href: 'work/bny/',
+    },
+    prudential: {
+      name: 'Prudential',
+      role: 'Senior Product Designer · 2018–2021',
+      lead: 'The app was not badly designed. It was badly organized, structured ' +
+            'the way Prudential is structured rather than the way a person ' +
+            'thinks about their own money.',
+      label: 'The case study will cover',
+      points: [
+        'What open card sorting actually surfaced, and why it was not what we expected.',
+        'Two rounds of tree testing, including the round that told us we had over-corrected.',
+        'Keeping the old structure alive as a side door, for people who already know what they own.',
+        'Cutting a personalized home screen that tested well, for a structural reason.',
+      ],
+      href: 'work/prudential/',
+    },
+  };
+
+  const companyPanel = document.getElementById('company');
+  const companyPoints = document.getElementById('companyPoints');
+  function openCompany(id) {
+    const c = COMPANIES[id];
+    if (!c) return false;              // every other monument still does nothing
+    closeCodex();                      // one panel at a time — they share the right edge
+    VH.chat.close({ silent: true });
+    document.getElementById('companyName').textContent = c.name;
+    document.getElementById('companyRole').textContent = c.role;
+    document.getElementById('companyLead').textContent = c.lead;
+    document.getElementById('companyLabel').textContent = c.label;
+    // textContent only, and the list is rebuilt rather than appended to,
+    // so reopening a second company never stacks the first one's points.
+    companyPoints.replaceChildren();
+    c.points.forEach((t) => {
+      const li = document.createElement('li');
+      li.textContent = t;
+      companyPoints.appendChild(li);
+    });
+    document.getElementById('companyLink').href = c.href;
+    companyPanel.hidden = false;
+    if (VH.sfx) VH.sfx.uiTick('open');
+    return true;
+  }
+  function closeCompany(opts) {
+    if (companyPanel.hidden) return;
+    companyPanel.hidden = true;
+    if (!(opts && opts.silent) && VH.sfx) VH.sfx.uiTick('close');
+  }
+  document.getElementById('companyClose').addEventListener('click', () => closeCompany());
+
   // ── Codex wiring ────────────────────────────────────────────
   // One open/close path shared by the button, the boot auto-open and
   // Escape, so the button's label/expanded state can never drift.
@@ -1007,6 +1094,7 @@
   function openCodex() {
     if (!codex.hidden) return;
     VH.chat.close({ silent: true }); // one panel at a time — they share the right edge; the button already ticked
+    closeCompany({ silent: true });
     // No rebuild here: the codex is built at boot and rebuilt on every
     // state change (onDiscovered, plan toggles, harness restores), so it
     // is always current while hidden. Rebuilding on open was a full DOM
@@ -1396,9 +1484,98 @@
     }
   }
 
+  // Per-tile tone: a hashed ±lightness per cell plus a faint checker, so
+  // the lawn is a field of slightly different grasses rather than one
+  // flat green. Two batched fills (dark / light), like the grain.
+  function emitTileTint(ctx, dip, pass) {
+    const fv = E.fv, ux = fv.ux, uy = fv.uy;
+    for (let gx = W.GRID_MIN; gx <= W.GRID_MAX; gx++) {
+      for (let gy = W.GRID_MIN; gy <= W.GRID_MAX; gy++) {
+        const v = E.hashRand(gx + 200, gy + 200, 7)() * 2 - 1 + (((gx + gy) & 1) ? 0.35 : -0.35);
+        if ((v > 0 ? 1 : 0) !== pass) continue;
+        const o = E.toScreen(gx, gy, -dip);
+        ctx.moveTo(o.x, o.y);
+        ctx.lineTo(o.x + ux.x, o.y + ux.y);
+        ctx.lineTo(o.x + ux.x + uy.x, o.y + ux.y + uy.y);
+        ctx.lineTo(o.x + uy.x, o.y + uy.y);
+        ctx.closePath();
+      }
+    }
+  }
+
+  // The cliff as earth, not a brown box: a shadow lip where the turf
+  // overhangs the soil, two wandering strata, a few pale stones, and a
+  // darkening toward the bottom edge so the wall falls away into the
+  // night instead of ending on a hard line. Whole-wall quads, not
+  // per-tile — one wall is one run.
+  function emitCliffDetail(ctx, dip, pass) {
+    const fv = E.fv, ux = fv.ux, uy = fv.uy, uz = fv.uz;
+    const gxEdge = fv.xVisible ? W.GRID_MAX : W.GRID_MIN;
+    const gyEdge = fv.yVisible ? W.GRID_MAX : W.GRID_MIN;
+    const xPlane = fv.xVisible ? gxEdge + 1 : gxEdge;
+    const yPlane = fv.yVisible ? gyEdge + 1 : gyEdge;
+    const n = W.GRID_MAX - W.GRID_MIN + 1;
+    // pass 0 = dark marks, pass 1 = light marks
+    const walls = [
+      { o: E.toScreen(xPlane, W.GRID_MIN, -2 - dip), a: { x: uy.x * n, y: uy.y * n }, seed: 1 },
+      { o: E.toScreen(W.GRID_MIN, yPlane, -2 - dip), a: { x: ux.x * n, y: ux.y * n }, seed: 2 },
+    ];
+    const band = (o, a, h0, h1) => {
+      ctx.moveTo(o.x + uz.x * h0, o.y + uz.y * h0);
+      ctx.lineTo(o.x + a.x + uz.x * h0, o.y + a.y + uz.y * h0);
+      ctx.lineTo(o.x + a.x + uz.x * h1, o.y + a.y + uz.y * h1);
+      ctx.lineTo(o.x + uz.x * h1, o.y + uz.y * h1);
+      ctx.closePath();
+    };
+    for (const wl of walls) {
+      const rnd = E.hashRand(wl.seed + 300, 0, 0);
+      if (pass === 0) {
+        // overhang shadow: three nested bands under the turf (dirt row spans h 0..1)
+        band(wl.o, wl.a, 0.84, 1.0); band(wl.o, wl.a, 0.92, 1.0); band(wl.o, wl.a, 0.96, 1.0);
+        // bottom falloff: the wall dissolves into the night
+        band(wl.o, wl.a, 0, 0.5); band(wl.o, wl.a, 0, 0.34); band(wl.o, wl.a, 0, 0.2);
+        band(wl.o, wl.a, 0, 0.11); band(wl.o, wl.a, 0, 0.05);
+        // two wandering strata, in short segments so they drift
+        for (const base of [0.36, 0.62]) {
+          let h = base + (rnd() - 0.5) * 0.06;
+          const segs = 8;
+          for (let k = 0; k < segs; k++) {
+            const t0 = k / segs, t1 = (k + 1) / segs;
+            const h2 = h + (rnd() - 0.5) * 0.05;
+            ctx.moveTo(wl.o.x + wl.a.x * t0 + uz.x * h, wl.o.y + wl.a.y * t0 + uz.y * h);
+            ctx.lineTo(wl.o.x + wl.a.x * t1 + uz.x * h2, wl.o.y + wl.a.y * t1 + uz.y * h2);
+            ctx.lineTo(wl.o.x + wl.a.x * t1 + uz.x * (h2 + 0.035), wl.o.y + wl.a.y * t1 + uz.y * (h2 + 0.035));
+            ctx.lineTo(wl.o.x + wl.a.x * t0 + uz.x * (h + 0.035), wl.o.y + wl.a.y * t0 + uz.y * (h + 0.035));
+            ctx.closePath();
+            h = h2;
+          }
+        }
+      } else {
+        // pale stones set into the soil
+        for (let k = 0; k < 7; k++) {
+          const t = rnd() * 0.95, h = 0.12 + rnd() * 0.6, w = 0.008 + rnd() * 0.014;
+          const ox = wl.o.x + wl.a.x * t + uz.x * h, oy = wl.o.y + wl.a.y * t + uz.y * h;
+          ctx.moveTo(ox, oy);
+          ctx.lineTo(ox + wl.a.x * w, oy + wl.a.y * w);
+          ctx.lineTo(ox + wl.a.x * w + uz.x * w * 8, oy + wl.a.y * w + uz.y * w * 8);
+          ctx.lineTo(ox + uz.x * w * 8, oy + uz.y * w * 8);
+          ctx.closePath();
+        }
+      }
+    }
+  }
+
   function drawPlatformGrain(dip) {
     if (!(GRAIN > 0)) return; // fail CLOSED on NaN
     const ctx = E.ctx; // called inside drawPlatform's E.ctx swap → the cache
+    ctx.beginPath(); emitTileTint(ctx, dip, 0);
+    ctx.globalAlpha = 0.045; ctx.fillStyle = '#0c1030'; ctx.fill();
+    ctx.beginPath(); emitTileTint(ctx, dip, 1);
+    ctx.globalAlpha = 0.035; ctx.fillStyle = '#fff1d2'; ctx.fill();
+    ctx.beginPath(); emitCliffDetail(ctx, dip, 0);
+    ctx.globalAlpha = 0.16; ctx.fillStyle = '#0c1030'; ctx.fill();
+    ctx.beginPath(); emitCliffDetail(ctx, dip, 1);
+    ctx.globalAlpha = 0.22; ctx.fillStyle = '#e8dcc4'; ctx.fill();
     ctx.beginPath();
     emitGrain(ctx, dip, 0);
     ctx.globalAlpha = Math.min(1, GRAIN * 0.16);
@@ -1447,9 +1624,16 @@
       platformCacheCtx.clearRect(0, 0, E.W, E.H);
       const mainCtx = E.ctx;
       E.ctx = platformCacheCtx; // world drawing helpers target E.ctx
+      // The tiles go through drawBlock, which reads the frame's lights —
+      // and this bitmap is CACHED, so any lamp or beam light would bake
+      // into the grass on a rotate frame and freeze there. Hide the lights
+      // for the rebuild; the ground gets its light live, after the blit.
+      const savedLights = E.lights, savedBeams = E.beams;
+      E.lights = []; E.beams = [];
       getPlatformTiles().forEach(t =>
         W.drawBlock(t.gx, t.gy, t.gz - dip, t.color, 1, { gridTop: t.color === 'grass' }));
       drawPlatformGrain(dip); // after every tile: tops are never occluded, walls are boundary-only
+      E.lights = savedLights; E.beams = savedBeams;
       E.ctx = mainCtx;
     }
     E.ctx.drawImage(platformCache, 0, 0, platformCache.width, platformCache.height, 0, 0, E.W, E.H);
@@ -1495,20 +1679,16 @@
     E.updateLightInfo();
     ctx.clearRect(0, 0, E.W, E.H);
     E.lightBegin(); // wipe the bloom buffer; emissive draws register into it
+    VH.monuments.registerBeams(); // the lighthouse beam, computed before anything draws
 
-    // Sky
-    const grad = ctx.createLinearGradient(0, 0, 0, E.H);
-    grad.addColorStop(0, '#0d0d1a');
-    grad.addColorStop(0.6, '#1a1a2e');
-    grad.addColorStop(1, '#16213e');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, E.W, E.H);
-
+    FX.drawSky();
     FX.drawStars(dt);
     FX.updateAndDrawShootingStar(dt);
+    FX.drawCloudsFar(dt);
     FX.drawMoon();
-    FX.updateAndDrawClouds(dt);
     FX.updateAndDrawSilhouettes(dt);
+    FX.drawCloudsNear(dt);
+    FX.drawVoidMist();
 
     // Void-fallers that are provably BEHIND the platform draw first, so
     // they disappear behind it. The old order painted the platform and
@@ -1609,6 +1789,17 @@
       E.toScreen(W.GRID_MAX + 1, W.GRID_MAX + 1, -dip),
       E.toScreen(W.GRID_MIN, W.GRID_MAX + 1, -dip),
     ]);
+    // Light on the ground: lamp pools and the lighthouse cone, with the
+    // lighthouse's own shadows cut out. AFTER the moon shadows so a pool
+    // inside one is not dimmed by it (light is drawn over shadow), BEFORE
+    // the world so every cube and the gofer stand on it and occlude it.
+    E.groundDraw(dip); // point-light pools only
+    E.groundComposite([
+      E.toScreen(W.GRID_MIN, W.GRID_MIN, -dip),
+      E.toScreen(W.GRID_MAX + 1, W.GRID_MIN, -dip),
+      E.toScreen(W.GRID_MAX + 1, W.GRID_MAX + 1, -dip),
+      E.toScreen(W.GRID_MIN, W.GRID_MAX + 1, -dip),
+    ]);
 
     // User blocks + monuments + ceremony theater, ordered by ONE global
     // occlusion sort over every item's REAL box — so a block against a
@@ -1654,6 +1845,8 @@
       E.addLight(pool.x, pool.y, E.TILE * E.SCALE * 3, '255,196,90', 0.16 * flicker);
       const top = E.toScreen(b.gx + 0.5, b.gy + 0.5, z + 1.1);
       E.addLight(top.x, top.y, E.TILE * E.SCALE * 1.1, '255,228,150', 0.35);
+      // …and the light the world reacts to: neighbours warm, the grass pools.
+      E.addPoint(b.gx + 0.5, b.gy + 0.5, z + 0.6, 3.2, '255,196,90', 0.55 * flicker, { faces: true, ground: true });
     });
 
     drawOrder.forEach(oi => {
@@ -1679,7 +1872,8 @@
           b.gx + (b.slideX || 0), b.gy + (b.slideY || 0),
           b.gz + (b.dropOffset || 0) + b.lift - dip,
           b.color, drawOpacity,
-          { ...squashOpts, contact: settled && !isGlass }
+          { ...squashOpts, contact: settled && !isGlass,
+            ao: settled && !isGlass ? b : null }
         );
       }
     });
@@ -1754,6 +1948,12 @@
         doomed ? 0.6 : 0.85);
       ctx.restore();
     }
+
+    // The lighthouse shaft, added over the finished world — volumetric
+    // light is glowing AIR in front of what it passes, so it goes last and
+    // additive, exactly where a real engine puts it. Nothing to sort, and
+    // it always reaches back to its own lamp. See M.drawBeamShaft.
+    VH.monuments.drawBeamShaft();
 
     // The one light pass: blur the collected lights, add them over the
     // scene. Leaves the context state clean (postcard export reads it).
@@ -1925,8 +2125,11 @@
     if (d.blur !== undefined) E.LIGHT_BLUR = d.blur;
     if (d.moon !== undefined) E.MOON_ALT = d.moon;
     if (d.shadow !== undefined) E.SHADOW_STRENGTH = d.shadow;
+    if (d.ground !== undefined) E.GROUND_GAIN = d.ground;   // ground-light pools
+    if (d.lights !== undefined) E.LIGHTS_ON = !!d.lights;    // point-light kill switch
     console.log('[dev-light] gain', E.LIGHT_GAIN, 'blur', E.LIGHT_BLUR,
-      'moon', E.MOON_ALT, 'shadow', E.SHADOW_STRENGTH);
+      'moon', E.MOON_ALT, 'shadow', E.SHADOW_STRENGTH,
+      'ground', E.GROUND_GAIN, 'lights', E.LIGHTS_ON);
   });
   // Framing picker: the designer chooses the DEFAULT island size on a
   // real phone (vietnhoang.com/#dev), never from a description. The

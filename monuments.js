@@ -18,8 +18,12 @@
   // empty: cells that must contain NOTHING (no block, no monument).
   // sameColor: all matched blocks must share one color.
   // Model entries: [dx, dy, dz, footprint, sz, colorKey, glow?, sign?,
-  // win?] — footprint is [sx, sy] (rectangular; a plain number means
-  // square, and a quarter turn swaps the axes at instantiate).
+  // win?, mark?] — footprint is [sx, sy] (rectangular; a plain number
+  // means square, and a quarter turn swaps the axes at instantiate).
+  // mark is a face PATTERN drawBlock paints ('lattice', 'mullion',
+  // 'windows', 'arcade', 'terrace', and the axis-carrying 'gateX'/'gateY',
+  // 'terraceX'/'terraceY' — a trailing X/Y is an axis in MODEL space and
+  // instantiate swaps it on odd quarter turns).
   // Fractional dx/dy shift the cube center off-cell; fractional dz
   // stacks partial cubes. sign NAMES the pixel wordmark a plate carries
   // (a key into world.js SIGN_MARKS); win is a PARAPET HEIGHT in cells —
@@ -158,48 +162,72 @@
         [0, 2, 0, '*'], [1, 2, 0, '*'], [2, 2, 0, '*'],
       ],
       empty: [[1, 1, 0]],
-      // Travertine ring: two arcade tiers + attic on the tall half
-      // (south + east), the iconic collapsed rim on the other, arch
-      // rhythm as protruding dark insets, a sand arena.
-      model: [
-        // South wall — the tall half. Arch "insets" are face PLATES (a
-        // buried inset pierced both faces and had no paint order); the
-        // end arches keep only the outer plate — the ring walls butt
-        // into the inner face there.
-        [1, 0, 0, [2.95, 0.82], 0.55, 'travertine'],
-        [0.2, -0.45, 0.1, [0.22, 0.08], 0.36, 'travertineDark'], // tier-1 arches
-        [1, -0.45, 0.1, [0.22, 0.08], 0.36, 'travertineDark'],
-        [1, 0.45, 0.1, [0.22, 0.08], 0.36, 'travertineDark'],
-        [1.8, -0.45, 0.1, [0.22, 0.08], 0.36, 'travertineDark'],
-        // The string course alone is split in two. The four ring walls
-        // form a painter's PINWHEEL at the back angles (south in front of
-        // east, east of west, west of south — no valid order). Breaking
-        // any single long south piece breaks the loop, and this thin
-        // 0.1-tall trim band is the one whose seam nobody can see —
-        // splitting the tall tier or the attic instead drew an obvious
-        // line down the wall. Verified: this split alone → zero cycles.
-        [0.25, 0, 0.55, [1.5, 0.86], 0.1, 'travertineDark'],  // string course
-        [1.75, 0, 0.55, [1.5, 0.86], 0.1, 'travertineDark'],
-        [1, 0, 0.65, [2.95, 0.78], 0.5, 'travertine'],       // tier 2
-        [0.35, -0.43, 0.75, [0.2, 0.08], 0.3, 'travertineDark'], // tier-2 arches
-        [1.65, -0.43, 0.75, [0.2, 0.08], 0.3, 'travertineDark'],
-        [1, 0, 1.15, [3.0, 0.74], 0.28, 'travertineDark'],   // attic
-        // East wall — tall. BUTTS the S/N walls; the walls used to
-        // overlap at the corners, which is a genuine painter's cycle.
-        [2, 1, 0, [0.82, 1.18], 0.55, 'travertine'],
-        [2, 1.01, 0.55, [0.86, 1.16], 0.1, 'travertineDark'],
-        [2, 0.99, 0.65, [0.78, 1.2], 0.5, 'travertine'],
-        [1.57, 0.5, 0.75, [0.08, 0.2], 0.3, 'travertineDark'], // arch plates, both faces
-        [2.43, 0.5, 0.75, [0.08, 0.2], 0.3, 'travertineDark'],
-        [2, 0.98, 1.15, [0.74, 1.22], 0.28, 'travertineDark'],
-        // North + west — the broken rim (west butts like the east)
-        [1, 2, 0, [2.95, 0.82], 0.55, 'travertine'],
-        [0.55, 2, 0.55, [1.7, 0.78], 0.22, 'travertineDark'],
-        [0, 1, 0, [0.82, 1.18], 0.55, 'travertine'],
-        [0, 1.13, 0.55, [0.78, 0.96], 0.2, 'travertineDark'],
-        // Arena
-        [1, 1, 0, [1.05, 1.05], 0.1, 'sand'],
-      ],
+      // Rebuilt (session 21) from the voxel reference as a pixel-art OVAL.
+      // The 3x3 box is cut into 12 rows of DY = 0.25 (y -0.5..2.5); each
+      // tier is a ring (outer R, inner r) drawn as one or two strips per
+      // row, cut to the circle's width at that row and EPS short so rows
+      // and tiers touch but never overlap. Every piece is a strip along x
+      // and the set splits by axis planes (rows, then tiers, then x = 1),
+      // so there is NO painter's cycle at any angle — the old four ring
+      // walls pinwheeled at the back angles and needed a split trim band.
+      // Zero spill: max R 1.495 and the rows exactly fill the box (no
+      // allowlist entry; any overhang fails the guard). The arches are
+      // PAINTED ('arcade' mark, world.js drawBlock) — ~100 pieces, no
+      // glow; IDLE.colosseum keeps the arena torch. The tall half is the
+      // south-east (low y, high x) as before; the rim breaks north-west.
+      model: (() => {
+        const P = [];
+        const box = (x, y, z, sx, sy, sz, color, glow, mark) =>
+          P.push(mark ? [x, y, z, [sx, sy], sz, color, !!glow, '', 0, mark]
+                      : glow ? [x, y, z, [sx, sy], sz, color, true] : [x, y, z, [sx, sy], sz, color]);
+        const EPS = 0.006, DY = 0.25, ROWS = 12;
+        // ring(R, r, z0, h, color, mark, keep, split): keep(cx, cy, row) may
+        // return false to drop a strip or a number to override its height.
+        // split: a row the ring spans whole (the front and back walls) is
+        // cut in two at x = 1, TOUCHING (no gap, no visible seam). Needed
+        // on every tier that has something beneath it: at the edge-on
+        // angles (45°, 135°…) a whole-width strip links a low piece on
+        // one side to a high piece on the other by height, and a block
+        // column between the two sides closes a painter's cycle — the same
+        // pinwheel the old model broke by splitting its string course.
+        // Tier 1, the seating and the arena have nothing below them and
+        // stay whole. Proven by the rotation sweep, packed: 17 → 0.
+        const ring = (R, r, z0, h, color, mark, keep, split) => {
+          for (let i = 0; i < ROWS; i++) {
+            const yc = -0.5 + i * DY + DY / 2, d = yc - 1;
+            const xo = Math.sqrt(Math.max(0, R * R - d * d));
+            if (xo < 0.02) continue;
+            const xi = Math.sqrt(Math.max(0, r * r - d * d));
+            const spans = xi > 0.02 ? [[1 - xo, 1 - xi], [1 + xi, 1 + xo]]
+                        : split ? [[1 - xo, 1], [1, 1 + xo]] : [[1 - xo, 1 + xo]];
+            for (const [xa, xb] of spans) {
+              const w = xb - xa - (xa === 1 || xb === 1 ? EPS / 2 : EPS);
+              if (w < 0.02) continue;
+              const cx = xa === 1 ? 1 + w / 2 : xb === 1 ? 1 - w / 2 : (xa + xb) / 2;
+              const k = keep ? keep(cx, yc, i) : true;
+              if (k === false) continue;
+              box(cx, yc, z0, w, DY - EPS, (typeof k === 'number' ? k : h) - EPS, color, false, mark || '');
+            }
+          }
+        };
+        const se = (cx, cy) => (cx - 1) - (cy - 1);   // > 0 on the tall south-east half
+        const T = 'travertine', D = 'travertineDark';
+        ring(1.48, 0.95, 0, 0.52, T, 'arcade');                                  // tier 1, all round
+        ring(1.495, 0.95, 0.52, 0.08, D, '', null, true);                          // string course
+        ring(1.44, 0.95, 0.60, 0.48, T, 'arcade',                                 // tier 2, rim broken NW
+          (cx, cy, i) => se(cx, cy) < -0.35 ? (i % 2 ? 0.32 : 0.48) : true, true);
+        ring(1.40, 0.95, 1.08, 0.44, T, 'arcade', (cx, cy) => se(cx, cy) >= -0.1, true); // tier 3, SE only
+        ring(1.36, 0.95, 1.52, 0.28, D, '', (cx, cy) => se(cx, cy) >= 0.35, true);  // attic
+        ring(0.95, 0.78, 0, 0.30, D);                                             // upper seating
+        ring(0.78, 0.62, 0, 0.16, D);                                             // lower seating
+        // The arena is ONE square, not strips: a foreign cell (the heart)
+        // is claimed only by a single piece covering >= CLAIM_COVER_MIN of
+        // it, and a 0.25 strip covers 0.25. It sits inside r 0.62 (corner
+        // radius 0.622 clears the strips, which are cut at row centres)
+        // and still splits by planes (y 0.5 / 1.5, then x either side).
+        box(1, 1, 0, 0.88, 0.88, 0.10, 'sand');                                    // arena floor, > SOLID_EPS deep so it claims the heart
+        return P;
+      })(),
     },
     {
       id: 'gardens',
@@ -209,23 +237,72 @@
         [0, 0, 0, '*'], [1, 0, 0, '*'], [0, 1, 0, '*'], [1, 1, 0, '*'],
         [0, 0, 1, 'grass'], [1, 1, 1, 'grass'],
       ],
-      // A ziggurat of terraces with greenery genuinely SPILLING over the
-      // edges (hanging, as advertised). The overhanging hedges block the
-      // columns they hang into — physically sensible, deliberate.
-      model: [
-        [0.5, 0.5, 0,    [2.1, 2.1],   0.5,  'stoneDark'],
-        [0.5, 0.5, 0.5,  [1.6, 1.6],   0.45, 'stone'],
-        [0.5, 0.5, 0.95, [1.05, 1.05], 0.4,  'stoneDark'],
-        [0.5, 0.5, 1.35, [0.55, 0.55], 0.35, 'stone'],
-        // Spills/hedges/trees sit ON or AGAINST their terrace now, never
-        // sunk into it (a buried piece has no valid paint order)
-        [0.5, -0.52, 0.5, [1.3, 0.3], 0.24, 'grass'],   // spill, south edge
-        [1.45, 0.5, 0.5, [0.3, 1.3],  0.24, 'grass'],   // spill, east edge
-        [0.5, -0.27, 0.95, [1.1, 0.3], 0.26, 'grass'],  // terrace-2 hedge
-        [0.05, 0.95, 1.35, [0.35, 0.35], 0.3, 'grass'], // corner tree
-        [0.95, 0.05, 1.35, [0.35, 0.35], 0.28, 'grass'],
-        [0.5, 0.5, 1.7,  [0.45, 0.45], 0.4,  'grass'],  // crown
-      ],
+      // Rebuilt (session 21) from the voxel reference. Four nested stone
+      // tiers, each centred inside the one below (so their vertical
+      // order is consistent at every angle), with everything else
+      // PAINTED on their faces by the 'terrace' mark (world.js drawBlock):
+      // lapis tile band, arches, a waterfall down the south face, vines.
+      // Built as pieces: 'water' pools where each fall lands, 'grass'
+      // hedges on every terrace edge (the colour is the flower signal,
+      // and they are the only pieces allowed to overhang — 0.15, under
+      // the claim threshold, the same hanging as before), four lamp
+      // lanterns on the top hedge corners (real lights, small points),
+      // three palms ('palm' crowns so they carry no flowers). The stone
+      // never leaves the 2x2 box. No stairs: no room beside the fall.
+      model: (() => {
+        const P = [];
+        const box = (x, y, z, sx, sy, sz, color, glow, mark) =>
+          P.push(mark ? [x, y, z, [sx, sy], sz, color, !!glow, '', 0, mark]
+                      : glow ? [x, y, z, [sx, sy], sz, color, true] : [x, y, z, [sx, sy], sz, color]);
+        const EPS = 0.006, C = 0.5;
+        const HD = 0.28, HH = 0.22, GAP = 0.25;  // hedge depth/height (centred 0.01 out: 0.13 hangs over), half of the pool gap
+        // tiers: [half-width, z0, z1, colour, mark]
+        const TIERS = [
+          [1.00, 0,    0.55, 'stone',     'terraceY'],
+          [0.75, 0.55, 1.05, 'stoneDark', 'terraceY'],
+          [0.50, 1.05, 1.50, 'stone',     'terraceY'],
+          [0.25, 1.50, 1.85, 'stoneDark', 'terrace'],   // the pavilion — arches, no fall
+        ];
+        TIERS.forEach(([h, z0, z1, col, mark]) => box(C, C, z0, 2 * h, 2 * h, z1 - z0 - EPS, col, false, mark));
+        for (let i = 1; i < TIERS.length; i++) {
+          const [h, , top] = TIERS[i - 1], [hi] = TIERS[i];
+          // the pool where tier i's fall lands, on the strip of tier i-1's top
+          box(C, C - (h + hi) / 2, top, 0.40, h - hi - 0.03, 0.05, 'water');
+          // hedges along the four edges of that terrace; the south edge is
+          // two halves either side of the pool; east/west butt between them.
+          // THE HANGING RULE (packed rotation sweep, 13 → 12 → 0 wrong
+          // pairs): a piece that hangs past the footprint must run the
+          // FULL length of its edge, and nothing else may leave the box.
+          // A block in the neighbouring row that sits beside a short
+          // overhang (not under it) is separated from it on one axis
+          // while the tier below is separated on another — a three-axis
+          // painter's loop. So north/east/west hedges hang over and span
+          // their whole edge; the two south halves beside the pool sit
+          // INSIDE the edge (the fall comes down a clean lip, as in the
+          // reference); the palms' crowns stay inside the box.
+          const e = h - 0.01, SD = 0.25 - 2 * EPS, si = h - EPS - SD / 2;                   // the inside hedge fills the 0.25 strip
+          box(C, C + e, top, 2 * h, HD, HH, 'grass');                                        // north — hangs over
+          box(C - (h + GAP) / 2, C - si, top, h - GAP, SD, HH, 'grass');                    // south-west half — inside
+          box(C + (h + GAP) / 2, C - si, top, h - GAP, SD, HH, 'grass');                    // south-east half — inside
+          const y0 = C - h + 0.25 + EPS, y1 = C + h - 0.15 - EPS;                          // between the south and north hedges
+          box(C - e, (y0 + y1) / 2, top, HD, y1 - y0, HH, 'grass');                          // west — hangs over
+          box(C + e, (y0 + y1) / 2, top, HD, y1 - y0, HH, 'grass');                          // east — hangs over
+        }
+        // lanterns on the corners of the top terrace's hedges
+        { const [h, , top] = TIERS[2], e = h - 0.01;
+          for (const sx of [-1, 1]) for (const sy of [-1, 1]) box(C + sx * e, C + sy * e, top + HH, 0.12, 0.12, 0.12, 'lamp', true); }
+        // palms: trunk, crown, tuft
+        const palm = (x, y, z, tw, th, cw, ch, uw, uh) => {
+          box(x, y, z, tw, tw, th, 'copper');
+          box(x, y, z + th, cw, cw, ch, 'palm');
+          box(x, y, z + th + ch, uw, uw, uh, 'palm');
+        };
+        palm(C, C, TIERS[3][2], 0.09, 0.42, 0.36, 0.14, 0.18, 0.10);                        // the crown palm
+        { const [h, , top] = TIERS[0], d = h - 0.14;                                        // two on the back hedge, crowns inside the box
+          palm(C - d, C + d, top + HH, 0.06, 0.50, 0.26, 0.11, 0.14, 0.08);
+          palm(C + d, C + d, top + HH, 0.06, 0.50, 0.26, 0.11, 0.14, 0.08); }
+        return P;
+      })(),
     },
     {
       id: 'arc',
@@ -329,40 +406,162 @@
         [0, 0, 0, 'glass'], [0, 0, 1, 'glass'], [0, 0, 2, 'glass'],
         [0, 0, 3, 'glass'], [0, 0, 4, 'glass'],
       ],
-      // Puddled-iron brown throughout (the tower was never blue glass):
-      // four splayed legs, crossed arch beams beneath a true first
-      // platform, a tapering shaft with stepped stages standing in for
-      // the lattice, second platform, mast, warm beacon.
-      // 2026-08-27 mass pass: 24% of its five cubes' volume — the lattice
-      // read as a wire toy beside them. Footprints widened only (every z
-      // joint butts in a chain; touching sz would re-plumb the whole
-      // tower): legs 0.3→0.42, shaft stages +~0.1, arch arms re-fitted to
-      // the thicker crossing. The taper survives; the tower just eats.
-      model: [
-        [-0.3, -0.3, 0, [0.4, 0.4], 0.85, 'ironBronze'],
-        [0.3, -0.3, 0, [0.4, 0.4], 0.85, 'ironBronze'],
-        [-0.3, 0.3, 0, [0.4, 0.4], 0.85, 'ironBronze'],
-        [0.3, 0.3, 0, [0.4, 0.4], 0.85, 'ironBronze'],
-        // Crossed arch beams, split at the crossing (two boxes passing
-        // through each other created a sort cycle at every angle).
-        // Beam plan is EXACT-touch against the 0.4 legs (leg faces at
-        // 0.40/0.60): widen anything here and it interpenetrates all four.
-        [0, 0, 0.52, [0.2, 0.2], 0.26, 'ironBronze'],         // the crossing
-        [-0.2875, 0, 0.52, [0.375, 0.2], 0.26, 'ironBronze'], // x-run, left arm
-        [0.2875, 0, 0.52, [0.375, 0.2], 0.26, 'ironBronze'],  // x-run, right arm
-        [0, -0.2875, 0.52, [0.2, 0.375], 0.26, 'ironBronze'], // y-run, near arm
-        [0, 0.2875, 0.52, [0.2, 0.375], 0.26, 'ironBronze'],  // y-run, far arm
-        [0, 0, 0.85, [1.2, 1.2], 0.16, 'ironBronze'],   // first platform
-        [0, 0, 1.01, [0.72, 0.72], 0.55, 'ironBronze'],
-        [0, 0, 1.56, [0.62, 0.62], 0.5, 'ironBronze'],
-        [0, 0, 2.06, [0.88, 0.88], 0.13, 'ironBronze'], // second platform
-        [0, 0, 2.19, [0.52, 0.52], 0.6, 'ironBronze'],
-        [0, 0, 2.79, [0.44, 0.44], 0.6, 'ironBronze'],
-        [0, 0, 3.39, [0.36, 0.36], 0.6, 'ironBronze'],
-        [0, 0, 3.99, [0.44, 0.44], 0.1, 'ironBronze'],  // top deck
-        [0, 0, 4.09, [0.16, 0.16], 0.45, 'ironBronze'], // mast
-        [0, 0, 4.54, [0.1, 0.1], 0.24, 'lamp', true],   // beacon
+      // The tower needs its own site: a 3×3 clearing around the five
+      // panes (Viet, session 20, from a voxel reference render). The
+      // codex draws these as dashed cells; the matcher requires them
+      // empty; after the transformation the legs and galleries claim them
+      // (blockedCellsFor), so nothing can be dropped inside the lattice.
+      empty: [
+        [-1, -1, 0], [0, -1, 0], [1, -1, 0],
+        [-1, 0, 0],              [1, 0, 0],
+        [-1, 1, 0],  [0, 1, 0],  [1, 1, 0],
       ],
+      // GENERATED, not hand-placed — ~190 boxes is past what anyone should
+      // type, and every joint below depends on one curve. It is an IIFE
+      // inside the literal on purpose: tools/check-*.js eval the RECIPES
+      // block in isolation, so the generator must be self-contained.
+      //
+      // The anatomy, bottom to top, in cells (the recipe cell is 0,0 and
+      // pieces are centred on it, so ±1.5 is the edge of the 3×3 site):
+      //   legs      four columns of stacked courses that follow D(z), the
+      //             tower's famous inward curve, alternating light and
+      //             inset dark courses — that alternation IS the lattice
+      //             at this scale (a box renderer cannot draw a diagonal)
+      //   arches    stepped bars under the first girders, each row's
+      //             opening set by a semicircle — three rows read as an arch
+      //   galleries two platforms: girder ring, slab, a warm LAMP strip
+      //             around the edge (the lit windows — glow pieces, so
+      //             they are real lights), a thin rail above
+      //   bracing   zig-zag cubes between the legs above each gallery
+      //   shaft     the legs meet at 4.8 and continue as one column
+      //   crown     top slab, lit lantern, cap, spire, antenna, beacon
+      // Warm sandstone (sand / travertineDark), per the reference — the
+      // old puddled-iron brown is gone.
+      model: (() => {
+        const P = [];
+        // mark: a PATTERN drawBlock paints on the side faces — 'lattice'
+        // (the truss openings) or 'mullion' (window bars on a lit band).
+        // Painted, not built: the piece count and the sorter stay as is.
+        const box = (x, y, z, sx, sy, sz, color, glow, mark) =>
+          P.push(mark ? [x, y, z, [sx, sy], sz, color, !!glow, '', 0, mark]
+                      : glow ? [x, y, z, [sx, sy], sz, color, true] : [x, y, z, [sx, sy], sz, color]);
+        const curve = (pts, z) => {
+          if (z <= pts[0][0]) return pts[0][1];
+          for (let i = 1; i < pts.length; i++) if (z <= pts[i][0]) {
+            const [z0, v0] = pts[i - 1], [z1, v1] = pts[i];
+            return v0 + (v1 - v0) * ((z - z0) / (z1 - z0));
+          }
+          return pts[pts.length - 1][1];
+        };
+        // D: distance of each leg's centre from the axis. S: a leg's side.
+        const D = [[0, 1.22], [0.6, 1.17], [1.2, 1.08], [1.86, 0.95], [2.4, 0.81], [3.6, 0.52], [4.6, 0.30], [4.8, 0.29]];
+        const S = [[0, 0.58], [2.0, 0.46], [3.6, 0.34], [4.8, 0.28]];
+        const LIGHT = 'sand', DARK = 'travertineDark', LAMP = 'lamp';
+        const INSET = 0.08, EPS = 0.006;
+        // Leg courses between two heights. Records each course so the
+        // bars between legs can be cut to the innermost leg face they span.
+        const courses = [];
+        const legs = (z0, z1, n) => {
+          const h = (z1 - z0) / n;
+          for (let i = 0; i < n; i++) {
+            const z = z0 + i * h, zc = z + h / 2, d = curve(D, zc), s = curve(S, zc);
+            const dark = i % 2 === 1, ss = dark ? s - INSET : s;
+            courses.push({ z0: z, z1: z + h, inner: d - s / 2, d });
+            for (const [px, py] of [[-1, -1], [1, -1], [-1, 1], [1, 1]])
+              box(px * d, py * d, z, ss, ss, h, dark ? DARK : LIGHT, false, 'lattice');
+          }
+        };
+        // The clear span between two legs' inner faces over a z-range.
+        const span = (z0, z1) => {
+          let m = Infinity;
+          courses.forEach(c => { if (c.z1 > z0 + 1e-9 && c.z0 < z1 - 1e-9) m = Math.min(m, c.inner); });
+          return m - EPS;
+        };
+        const dAt = (z) => curve(D, z);
+        // A bar on all four outer faces, from -L..L along the face, sitting
+        // in the legs' own plane (centre at ±d), `dep` deep, `th` tall.
+        // A closed girder ring in the legs' plane (centre at ±d): the x-bars
+        // run corner to corner, the y-bars fill between them — no crossing.
+        const ring = (z, th, dep, color) => {
+          const d = dAt(z + th / 2), Lx = d + dep / 2, Ly = d - dep / 2 - EPS;
+          box(0, -d, z, 2 * Lx, dep, th, color, false, 'lattice');
+          box(0, d, z, 2 * Lx, dep, th, color, false, 'lattice');
+          box(-d, 0, z, dep, 2 * Ly, th, color, false, 'lattice');
+          box(d, 0, z, dep, 2 * Ly, th, color, false, 'lattice');
+        };
+        // Lattice rings: a thin horizontal bar across each face between
+        // two legs, cut to the innermost leg face it spans. (Zig-zag cubes
+        // were tried first and read as rubble at this scale.)
+        const brace = (z, th = 0.09) => {
+          const L = span(z, z + th);
+          if (L < 0.12) return;
+          const d = dAt(z + th / 2);
+          box(0, -d, z, 2 * L, th, th, DARK); box(0, d, z, 2 * L, th, th, DARK);
+          box(-d, 0, z, th, 2 * L, th, DARK); box(d, 0, z, th, 2 * L, th, DARK);
+        };
+        // A gallery: girder ring under, slab, lamp strip, rail. Returns
+        // the z where the legs resume. `half` = slab half-width.
+        const gallery = (zTop, girderH, girderDep, slabH, half) => {
+          const zg = zTop - girderH;
+          ring(zg, girderH, girderDep, LIGHT);
+          box(0, 0, zTop, 2 * half, 2 * half, slabH, LIGHT);
+          // The lit windows: LAMP colour reads as lit on its own. They are
+          // deliberately NOT glow pieces — eight point lights per tower
+          // washed every face between the galleries into one yellow blob.
+          // Only the lantern and the beacon are real lights.
+          //
+          // The dark rail is a FRAME beside the lit band, at the SAME height.
+          // It used to sit one step above the band and wrap the legs, and
+          // that is a painter's cycle by construction: leg behind band (y),
+          // band behind rail (z), rail behind leg (x) — six wrong pairs at
+          // every camera angle. Same height = no z vote = no loop.
+          const zs = zTop + slabH, th = 0.14, e = half - 0.13; // lamp band centre line
+          box(0, -e, zs, 2 * (e + 0.06), 0.12, th, LAMP, false, 'mullion');
+          box(0, e, zs, 2 * (e + 0.06), 0.12, th, LAMP, false, 'mullion');
+          box(-e, 0, zs, 0.12, 2 * (e - 0.06), th, LAMP, false, 'mullion');
+          box(e, 0, zs, 0.12, 2 * (e - 0.06), th, LAMP, false, 'mullion');
+          const f = e + 0.09;                                  // frame centre line
+          box(0, -f, zs, 2 * (f + 0.03), 0.06, th, DARK);
+          box(0, f, zs, 2 * (f + 0.03), 0.06, th, DARK);
+          box(-f, 0, zs, 0.06, 2 * (f - 0.03), th, DARK);
+          box(f, 0, zs, 0.06, 2 * (f - 0.03), th, DARK);
+          return zs;
+        };
+
+        // ── Build ──
+        legs(0, 1.86, 9);                       // ground to the first girders
+        // Arches: rows of bars whose opening follows a semicircle that
+        // tops out at the girder's underside.
+        { const top = 1.86, R = span(1.6, 1.86), zc = top - R, th = 0.17, dep = 0.2;
+          for (let z = 1.18; z + th <= top + 1e-9; z += 0.17) {
+            const mid = z + th / 2, o = Math.sqrt(Math.max(0, R * R - (mid - zc) * (mid - zc)));
+            const L = span(z, z + th), len = L - o;
+            if (len < 0.04) continue;
+            const d = dAt(mid), u = o + len / 2;
+            for (const [bx, by, bw, bh] of [[-u, -d, len, dep], [u, -d, len, dep], [-u, d, len, dep], [u, d, len, dep],
+                                             [-d, -u, dep, len], [-d, u, dep, len], [d, -u, dep, len], [d, u, dep, len]])
+              box(bx, by, z, bw, bh, th, LIGHT, false, 'lattice');
+          } }
+        let z = gallery(2.2, 0.34, 0.5, 0.16, 1.22);   // first gallery (legs resume at z)
+        legs(z, 3.36, 4);
+        brace(2.62); brace(2.88); brace(3.14);
+        z = gallery(3.6, 0.24, 0.36, 0.14, 0.85);      // second gallery
+        legs(z, 4.8, 4);
+        brace(4.0); brace(4.3);
+        // The shaft: one column, same light/dark rhythm, tapering to the crown.
+        { const W0 = 0.60, W1 = 0.42, n = 6, h = (6.2 - 4.8) / n;
+          for (let i = 0; i < n; i++) {
+            const zz = 4.8 + i * h, w = W0 + (W1 - W0) * ((i + 0.5) / n), dark = i % 2 === 1;
+            box(0, 0, zz, dark ? w - INSET : w, dark ? w - INSET : w, h, dark ? DARK : LIGHT, false, 'lattice');
+          } }
+        box(0, 0, 6.2, 0.8, 0.8, 0.12, LIGHT);          // top slab
+        box(0, 0, 6.32, 0.30, 0.30, 0.30, LAMP, true);  // the lantern
+        box(0, 0, 6.62, 0.34, 0.34, 0.08, DARK);        // cap
+        box(0, 0, 6.70, 0.14, 0.14, 0.50, DARK);        // spire
+        box(0, 0, 7.20, 0.06, 0.06, 0.58, DARK);        // antenna
+        box(0, 0, 7.78, 0.08, 0.08, 0.12, LAMP, true);  // beacon
+        return P;
+      })(),
     },
     {
       id: 'crystal',
@@ -480,49 +679,59 @@
       cells: [
         [0, 0, 0, '*'], [1, 0, 0, '*'], [2, 0, 0, '*'], [3, 0, 0, '*'], [4, 0, 0, '*'],
       ],
-      // Grey brick: a two-storey watchtower at one end (protruding window
-      // insets, corbel ledge, roof hut), then the wall run — one true
-      // rect body, paved walkway, parapets on BOTH edges with real
-      // merlons (the old ones were square posts that only read from
-      // the front).
-      model: [
-        // Watchtower at x=0
-        [0, 0, 0, [1.05, 1.05], 1.05, 'brickDark'],
-        // Corbel + roof slab are clamped to the cell (were 1.2 / 1.1):
-        // with neighbour tiles freed by CLAIM_COVER_MIN, blocks stacked
-        // two-high beside the tower interpenetrated both slabs, which
-        // closed a painter's cycle — 9 wrong pairs at 317.5deg. Flush at
-        // 1.0 they still step out past the 0.95 upper storey, so the
-        // silhouette keeps its ledges; 1.05 (flush with the body) was
-        // measured and does NOT fix it — any spill past the cell revives
-        // the cycle.
-        [0, 0, 1.05, [1.0, 1.0], 0.14, 'brickGrey'],     // corbel ledge
-        [0, 0, 1.19, [0.95, 0.95], 0.75, 'brickGrey'],
-        // Window slots: one plate per storey FACE (a slot piercing the
-        // tower showed its far end through the wall from behind)
-        [0.505, 0, 1.4, [0.06, 0.34], 0.34, 'brickDark'],
-        [-0.505, 0, 1.4, [0.06, 0.34], 0.34, 'brickDark'],
-        [0, 0.505, 1.4, [0.34, 0.06], 0.34, 'brickDark'],
-        [0, -0.505, 1.4, [0.34, 0.06], 0.34, 'brickDark'],
-        [0, 0, 1.94, [1.0, 1.0], 0.12, 'brickDark'],     // roof slab (clamped — see corbel note)
-        [0, 0, 2.06, [0.5, 0.5], 0.2, 'brickGrey'],      // roof hut
-        // Wall run x1–4 (parapets stop at the tower's corbel ledge —
-        // they used to run into it)
-        [2.5, 0, 0, [3.95, 0.9], 0.85, 'brickGrey'],
-        [2.5, 0, 0.85, [3.95, 0.98], 0.12, 'brickDark'], // walkway pavers
-        [2.5375, -0.36, 0.97, [3.875, 0.16], 0.16, 'brickGrey'], // front parapet
-        [2.5375, 0.36, 0.97, [3.875, 0.16], 0.16, 'brickGrey'],  // rear parapet
-        // Merlons, front (five — the tower interrupts the rhythm) +
-        // rear (three, sparser)
-        [1.1, -0.36, 1.13, [0.28, 0.18], 0.22, 'brickDark'],
-        [1.8, -0.36, 1.13, [0.28, 0.18], 0.22, 'brickDark'],
-        [2.5, -0.36, 1.13, [0.28, 0.18], 0.22, 'brickDark'],
-        [3.2, -0.36, 1.13, [0.28, 0.18], 0.22, 'brickDark'],
-        [3.9, -0.36, 1.13, [0.28, 0.18], 0.22, 'brickDark'],
-        [0.75, 0.36, 1.13, [0.28, 0.18], 0.22, 'brickDark'],
-        [2.15, 0.36, 1.13, [0.28, 0.18], 0.22, 'brickDark'],
-        [3.55, 0.36, 1.13, [0.28, 0.18], 0.22, 'brickDark'],
-      ],
+      // Rebuilt 2026-09-07 (session 20) from Viet's voxel reference: three
+      // watchtowers with grey tiled hip roofs and lit windows, a gate arch
+      // through the middle one, battlemented wall runs between them,
+      // lantern posts on the walkway. GENERATED (an IIFE inside the
+      // literal — the tools eval the RECIPES block in isolation), like
+      // the Eiffel Tower.
+      //
+      // THE RULE THIS MONUMENT LIVES BY: nothing overhangs the 1×5 cell
+      // strip. Blocks stacked beside the old tower interpenetrated its
+      // corbel and roof slabs and closed a painter's cycle (9 wrong pairs
+      // at 317.5°); the spill guard now allows this recipe ZERO spill.
+      // So: eaves are flush with the cell (the storey below steps IN to
+      // make the ledge), the gate lanterns are PAINTED into the arch
+      // mark rather than mounted on the face, and there are no stairs —
+      // there is no room for them inside a 1.0-wide strip. Winding and
+      // landscape were ruled out by Viet (straight, wall only).
+      //
+      // Lit windows and the gate arch are painted marks, not pieces
+      // (world.js drawBlock); the only real lights are the two lantern
+      // posts. ~45 pieces.
+      model: (() => {
+        const P = [];
+        const box = (x, y, z, sx, sy, sz, color, glow, mark) =>
+          P.push(mark ? [x, y, z, [sx, sy], sz, color, !!glow, '', 0, mark]
+                      : glow ? [x, y, z, [sx, sy], sz, color, true] : [x, y, z, [sx, sy], sz, color]);
+        const EPS = 0.006;
+        const BRICK = 'brickGrey', DARK = 'brickDark', TILE = 'kasagiBlack', LAMP = 'lamp';
+        // Watchtowers at x = 0, 2 (the gate), 4 — each inside its own cell.
+        for (const tx of [0, 2, 4]) {
+          box(tx, 0, 0, 1.0, 1.0, 1.30, DARK, false, tx === 2 ? 'gateY' : '');  // body
+          box(tx, 0, 1.30, 1.0, 1.0, 0.10, BRICK);                                // corbel band (flush)
+          box(tx, 0, 1.40, 0.88, 0.88, 0.65, BRICK, false, 'windows');           // upper storey, lit windows
+          box(tx, 0, 2.05, 1.0, 1.0, 0.10, TILE);                                 // hip roof, eaves flush
+          box(tx, 0, 2.15, 0.74, 0.74, 0.10, TILE);
+          box(tx, 0, 2.25, 0.48, 0.48, 0.10, TILE);
+          box(tx, 0, 2.35, 0.22, 0.22, 0.12, TILE);                               // ridge
+        }
+        // Wall runs between the towers, butted EPS short of their faces.
+        for (const rx of [1, 3]) {
+          const L = 1.0 - 2 * EPS;
+          box(rx, 0, 0, L, 0.80, 1.05, BRICK);                 // body
+          box(rx, 0, 1.05, L, 0.80, 0.06, DARK);               // walkway pavers
+          for (const side of [-1, 1]) {
+            box(rx, side * 0.34, 1.11, L, 0.12, 0.14, BRICK);  // parapet
+            for (const mx of [-0.34, 0, 0.34])                 // merlons — silhouette, so pieces
+              box(rx + mx, side * 0.34, 1.25, 0.20, 0.12, 0.18, DARK);
+          }
+          // one lantern post on the rear parapet, between two merlons
+          box(rx - 0.17, 0.34, 1.25, 0.08, 0.08, 0.26, DARK);
+          box(rx - 0.17, 0.34, 1.51, 0.12, 0.12, 0.12, LAMP, true);
+        }
+        return P;
+      })(),
     },
     {
       id: 'prudential',
@@ -665,8 +874,18 @@
   // to an accident of emission that reshuffled as the angle swept — the
   // "blocks flicker against the pyramid while rotating" bug.
   // pieces: [{gx,gy,gz,sxy,sy,sz}, ...]; returns indices back-to-front.
-  function occlusionOrder(pieces, cosA, sinA) {
+  function occlusionOrder(allPieces, cosA, sinA) {
     if (cosA === undefined) { cosA = E.cosA; sinA = E.sinA; }
+    // LIGHT entries (the beam's slices: long, diagonal, translucent) are
+    // sorted AFTER the solid world is ordered, and slotted in behind the
+    // last solid they must follow. Sorting them together with the solids
+    // let their boxes close painter's cycles through a monument, and the
+    // cycle breaker then drew a rear sign plate over the front of the
+    // tower. A light drawn one slot too early is invisible; a solid drawn
+    // one slot too early is a glitch.
+    const lights = [], solidIdx = [];
+    allPieces.forEach((p, i) => (p.light ? lights : solidIdx).push(i));
+    const pieces = solidIdx.map(i => allPieces[i]);
     const n = pieces.length;
     const EPS = 1e-6, EV = 1e-9;
     const box = pieces.map(p => E.pieceAABB(p.gx, p.gy, p.gz, p.sxy, p.sz, p.sy));
@@ -714,7 +933,50 @@
       order.push(pick);
       after[pick].forEach(j => { if (!used[j] && --indeg[j] === 0) ready.push(j); });
     }
-    return order;
+    // Map back to indices into allPieces, then slot the lights in.
+    const out = order.map(i => solidIdx[i]);
+    if (lights.length) {
+      const pos = new Map(); // allPieces index -> position in out
+      out.forEach((idx, k) => pos.set(idx, k));
+      const behindOf = (L, S) => { // is solid S behind light L?
+        let aFront = 0, aBehind = 0; // "a" = the light
+        if (L.x1 <= S.x0 + EPS) { if (vx > EV) aBehind++; else if (vx < -EV) aFront++; }
+        else if (S.x1 <= L.x0 + EPS) { if (vx > EV) aFront++; else if (vx < -EV) aBehind++; }
+        if (L.y1 <= S.y0 + EPS) { if (vy > EV) aBehind++; else if (vy < -EV) aFront++; }
+        else if (S.y1 <= L.y0 + EPS) { if (vy > EV) aFront++; else if (vy < -EV) aBehind++; }
+        if (L.z1 <= S.z0 + EPS) aBehind++; else if (S.z1 <= L.z0 + EPS) aFront++;
+        return aFront && !aBehind; // the solid is behind the light
+      };
+      const frontOf = (L, S) => { // is solid S in front of light L?
+        let aFront = 0, aBehind = 0; // "a" = the light
+        if (L.x1 <= S.x0 + EPS) { if (vx > EV) aBehind++; else if (vx < -EV) aFront++; }
+        else if (S.x1 <= L.x0 + EPS) { if (vx > EV) aFront++; else if (vx < -EV) aBehind++; }
+        if (L.y1 <= S.y0 + EPS) { if (vy > EV) aBehind++; else if (vy < -EV) aFront++; }
+        else if (S.y1 <= L.y0 + EPS) { if (vy > EV) aFront++; else if (vy < -EV) aBehind++; }
+        if (L.z1 <= S.z0 + EPS) aBehind++; else if (S.z1 <= L.z0 + EPS) aFront++;
+        return aBehind && !aFront; // the light is behind the solid
+      };
+      const inserts = lights.map(li => {
+        const p = allPieces[li];
+        const L = E.pieceAABB(p.gx, p.gy, p.gz, p.sxy, p.sz, p.sy);
+        // After the last solid behind it, but NEVER after a solid in front
+        // of it: the solid order interleaves, so "last behind" can sit past
+        // a piece the light must stay under — that drew the sheet over a
+        // tower face and, as the beam swept, flickered it on and off. Too
+        // early is invisible; too late is a glitch. Early wins the tie.
+        let at = -1, firstFront = out.length;
+        for (let k = 0; k < out.length; k++) {
+          const S = box[order[k]];
+          if (behindOf(L, S)) at = k;
+          if (firstFront === out.length && frontOf(L, S)) firstFront = k;
+        }
+        return { li, at: Math.min(at, firstFront - 1) };
+      });
+      // insert from the back so earlier positions stay valid
+      inserts.sort((a, b) => b.at - a.at);
+      for (const ins of inserts) out.splice(ins.at + 1, 0, ins.li);
+    }
+    return out;
   }
 
   // Memoised per-monument order for the current camera angle. Memo keys on
@@ -937,6 +1199,10 @@
   // Build a monument in world space and add it to the world. The ceremony
   // passes pending:true (the rise animation reveals it); the dev gallery
   // instantiates fully-revealed monuments directly.
+  // A quarter turn swaps a piece's axes (see fp below); a mark that names
+  // an axis has to turn with it.
+  // A mark ending in X/Y names an axis in MODEL space (gateX, terraceY…); an odd quarter turn swaps it.
+  const rotMark = (m, k) => (k % 2 === 1 && /X$/.test(m)) ? m.slice(0, -1) + 'Y' : (k % 2 === 1 && /Y$/.test(m)) ? m.slice(0, -1) + 'X' : m;
   M.instantiate = (recipe, ox, oy, oz, k, opts = {}) => {
     const pending = !!opts.pending;
     const maxDz = Math.max(...recipe.model.map(e => e[2] + e[4]));
@@ -951,6 +1217,7 @@
         sxy: sx, sy, sz: e[4], color: e[5], glow: !!e[6],
         sign: e[7] || false, // a MARK KEY into world.js SIGN_MARKS ('prudential', 'bny')
         win: e[8] || 0,
+        mark: rotMark(e[9] || '', k), // a face PATTERN painted by drawBlock (see the format note)
         // appearAt drives the mallet notes AND the hologram's per-layer
         // lighting (bottom-up); the MATTER now arrives all at once at
         // TRANSFORM_AT, decoupled from this schedule.
@@ -1227,14 +1494,16 @@
         if (VH.fx) {
           VH.fx.spawnDust(Math.round(c.cx - 0.5), Math.round(c.cy - 0.5), Math.max(0, Math.round(c.cz - 0.5)), 14);
           // The bloom (drawn by fx.js flashes — shared with firework detonations)
-          VH.fx.spawnFlash(c.cx, c.cy, c.cz, { dur: 0.45, r0: 2, r1: 7, peak: 0.85 });
+          // Warm gold, not near-white: an additive white flash over green
+          // grass read as a green wash. Smaller reach for the same reason.
+          VH.fx.spawnFlash(c.cx, c.cy, c.cz, { dur: 0.45, r0: 2, r1: 5, peak: 0.75, col: '255,208,130' });
           // The compression ring: a fast tight-to-wide pulse reading as
           // the shockwave of the smash itself, under the slower bloom.
           // Gated: spawnFlash does NOT self-gate on reduced motion (unlike
           // spawnSoil/spawnBurst), so stacking a second bloom here would
           // hand a visitor who asked for LESS a brighter combined flash.
           if (!E.reducedMotion) {
-            VH.fx.spawnFlash(c.cx, c.cy, c.cz, { dur: 0.28, r0: 0.4, r1: 5.5, peak: 0.5 });
+            VH.fx.spawnFlash(c.cx, c.cy, c.cz, { dur: 0.28, r0: 0.4, r1: 4.5, peak: 0.5, col: '255,226,170' });
           }
         }
         // (The flash SOUND — the bell — was scheduled with the whole
@@ -1544,6 +1813,7 @@
       // the monument's own glow pieces as the crossfade completes.
       const sc = E.toScreen(c.cx, c.cy, Math.max(0.5, c.cz) - dip);
       E.addLight(sc.x, sc.y, E.TILE * E.SCALE * 5, '255,233,184', 0.18 * strength);
+      E.addPoint(c.cx, c.cy, Math.max(0.5, c.cz), 5, '255,233,184', 0.45 * strength, { faces: true, ground: true });
     });
   };
 
@@ -1585,9 +1855,211 @@
   // — registered as LIGHTS for the bloom pass, not painted gradients.
   // A lit SIGN (the Prudential band) glows its own blue and holds STEADY:
   // flame and gilt flicker, corporate signage does not.
+  // ── Idle life ────────────────────────────────────────────────
+  // One quiet behaviour per monument that has a reason to move at night:
+  // the lighthouse sweeps, the tower's late shift comes and goes (that
+  // one lives in world.js with the windows), the Eiffel beacon sparkles
+  // on the hour, torches burn inside the Colosseum, a lantern hangs at
+  // the torii, the Crystal Palace breathes. All of it is LIGHT — bloom
+  // entries and a few 'lighter' pixels — so the sorted world is
+  // untouched and reduced motion simply holds each one still.
+  const centreOf = (mon) => {
+    if (!mon._centre) {
+      let sx = 0, sy = 0;
+      mon.cells.forEach(c => { sx += c.gx; sy += c.gy; });
+      mon._centre = { gx: sx / mon.cells.length + 0.5, gy: sy / mon.cells.length + 0.5 };
+    }
+    return mon._centre;
+  };
+  const IDLE = {
+    lighthouse(mon, t, time, rm) {
+      // The lamp room: a STEADY warm glow. It deliberately does not read
+      // the beam's direction. The halo used to widen and brighten as the
+      // beam swung toward the camera, and because the bloom buffer is
+      // composited over the whole scene, that bled onto the tower next
+      // door — the last remaining way the sweeping beam could change a
+      // pixel on somebody else's monument. One flicker term only, so the
+      // island is completely still as the beam turns.
+      const lamp = mon.model.find(m => m.color === 'lamp');
+      if (!lamp) return;
+      const b = beamFor(mon, time, rm);
+      const flick = b ? b.strength : 1;
+      const top = E.toScreen(lamp.gx + 0.5, lamp.gy + 0.5, lamp.gz + lamp.sz / 2);
+      E.addLight(top.x, top.y, t * 1.5, '255,236,170', 0.34 * flick);
+      E.addPoint(lamp.gx + 0.5, lamp.gy + 0.5, lamp.gz + lamp.sz / 2, 2.2, '255,236,170', 0.4 * flick, { faces: true, ground: true });
+    },
+    eiffel(mon, t, time, rm) {
+      // On the hour, the tower glitters: a two-second scatter of white
+      // sparks up its height. Reduced motion keeps the beacon only.
+      if (rm) return;
+      const phase = time % 26;
+      if (phase > 2.4) return;
+      const ctx = E.ctx;
+      const base = mon.model[0];
+      const cx = base.gx + 0.5, cy = base.gy + 0.5;
+      const env = Math.sin((phase / 2.4) * Math.PI);
+      const rnd = E.hashRand(Math.floor(time * 18), 3, 7); // new scatter each 1/18 s
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = '#fff6dc';
+      for (let k = 0; k < 7; k++) {
+        const z = 0.3 + rnd() * 4.2;
+        const w = 0.55 * (1 - z / 5.2) + 0.08;
+        const p = E.toScreen(cx + (rnd() - 0.5) * w, cy + (rnd() - 0.5) * w, z);
+        const on = rnd() < 0.7 * env;
+        if (!on) continue;
+        const sz = Math.max(1, 1.6 * E.SCALE);
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(p.x - sz / 2, p.y - sz / 2, sz, sz);
+        if (k < 3) E.addLight(p.x, p.y, t * 0.5, '255,246,220', 0.25);
+      }
+      ctx.restore();
+    },
+    colosseum(mon, t, time, rm) {
+      // Torches in the arena: a low warm flicker inside the ring.
+      const c = centreOf(mon);
+      const f = rm ? 1 : 0.8 + 0.2 * Math.sin(time * 6.3) * Math.sin(time * 2.1 + 1);
+      const p = E.toScreen(c.gx, c.gy, 0.35);
+      E.addLight(p.x, p.y, t * 1.9, '255,170,80', 0.14 * f);
+      E.addPoint(c.gx, c.gy, 0.35, 2.4, '255,170,80', 0.4 * f, { faces: true, ground: true });
+    },
+    torii(mon, t, time, rm) {
+      // The shrine lantern: hangs at the plaque, breathes slowly.
+      const plaque = mon.model.find(m => m.color === 'gold');
+      if (!plaque) return;
+      const f = rm ? 1 : 0.85 + 0.15 * Math.sin(time * 1.3);
+      const p = E.toScreen(plaque.gx + 0.5, plaque.gy + 0.5, plaque.gz - 0.15);
+      E.addLight(p.x, p.y, t * 1.5, '255,200,110', 0.16 * f);
+      E.addPoint(plaque.gx + 0.5, plaque.gy + 0.5, plaque.gz - 0.15, 2.2, '255,200,110', 0.4 * f, { faces: true, ground: true });
+    },
+    crystal(mon, t, time, rm) {
+      // A greenhouse at night keeps a cool light on inside.
+      const c = centreOf(mon);
+      const f = rm ? 1 : 0.8 + 0.2 * Math.sin(time * 0.7);
+      const p = E.toScreen(c.gx, c.gy, 0.6);
+      E.addLight(p.x, p.y, t * 2.6, '190,225,255', 0.11 * f);
+      E.addPoint(c.gx, c.gy, 0.6, 3, '190,225,255', 0.3 * f, { faces: true, ground: true });
+    },
+  };
+
+  // ── The lighthouse beam ──────────────────────────────────────
+  // A shaft of light in the SKY, and nothing else. It does not light any
+  // object, does not stop at any object, and is not sorted against any
+  // object (Viet, session 20: "let's not have the beam interact with any
+  // of the objects" — every version that touched the monuments read as
+  // patchy or flashing on a built mass, because a monument is dozens of
+  // small pieces and a moving cone edge crosses them one at a time).
+  //
+  // Two consequences make it glitch-proof by construction:
+  //   * it climbs (BEAM.rise) instead of aiming at the island, so it
+  //     always sweeps up-screen into empty sky;
+  //   * it is drawn in the SKY layer, before the platform and the world,
+  //     so anything standing in front of it simply paints over it.
+  // The lamp room's own glow (IDLE.lighthouse) is a separate, stationary
+  // point light and is unchanged.
+  const BEAM = { far: 9.5, hw: 2.6, rise: 0.25, alpha: 0.5, gain: 0.32, focus: 2.5, speed: 0.4, angle: null };
+  // far   — length of the shaft in cells       hw    — half-width at the far end
+  // rise  — climb per cell travelled (0.25 ≈ a lighthouse aimed at the horizon)
+  // alpha — weight of the shaft in the air     gain  — weight of the light on surfaces
+  // focus — how spotlight-like the surface light is. 0 = a plain directional
+  //         wash over the whole island; higher = tighter around the beam's
+  //         heading. It is an exponent on a cosine, so it is smooth at every
+  //         value — there is no in/out edge to sweep across a monument.
+  // angle — dev pin, radians; null = sweeping
+  M.BEAM = BEAM; // dev: BEAM.angle (radians) pins the sweep for screenshots
+  function beamFor(mon, time, rm) {
+    if (mon.id !== 'lighthouse' || mon.pending) return null;
+    const lamp = mon.model.find(m => m.color === 'lamp');
+    if (!lamp) return null;
+    const ang = BEAM.angle != null ? BEAM.angle : rm ? 0.8 : time * BEAM.speed;
+    // unit axis: out along the sweep, and up by BEAM.rise
+    const n = Math.hypot(1, BEAM.rise);
+    return {
+      gx: lamp.gx + 0.5, gy: lamp.gy + 0.5, gz: lamp.gz + lamp.sz * 0.55,
+      dx: Math.cos(ang), dy: Math.sin(ang),
+      ax: Math.cos(ang) / n, ay: Math.sin(ang) / n, az: BEAM.rise / n,
+      far: BEAM.far, hw: BEAM.hw,
+      strength: rm ? 1 : 0.92 + 0.08 * Math.sin(time * 5.1),
+    };
+  }
+  // The beam lights surfaces the way a game engine's directional light
+  // does: ONE brightness per face ORIENTATION, computed from the beam's
+  // heading against the face's normal. Every piece of a wall shares a
+  // normal, so a whole wall brightens and dims in perfect unison — which
+  // is precisely what four earlier attempts could not achieve, because
+  // they asked each PIECE "are you inside the cone?" and that question
+  // has a hard yes/no edge that crosses a monument one piece at a time.
+  // Orientation has no edge. Published as E.beamLit for W.drawBlock.
+  M.registerBeams = () => {
+    const time = VH.clock.time, rm = !!E.reducedMotion;
+    E.beamLit = null;
+    W.monuments.forEach(mon => {
+      const b = beamFor(mon, time, rm);
+      if (!b) return;
+      E.addBeam(b);
+      E.beamLit = {
+        // how squarely each face orientation meets the beam (0..1)
+        px: Math.max(0, -b.ax), nx: Math.max(0, b.ax),
+        py: Math.max(0, -b.ay), ny: Math.max(0, b.ay),
+        top: Math.max(0, -b.az),
+        gx: b.gx, gy: b.gy,            // the lamp: FIXED, so the distance
+        dx: b.dx, dy: b.dy,            // falloff below never changes in time
+        far: b.far, focus: BEAM.focus,
+        gain: BEAM.gain * b.strength,
+      };
+    });
+  };
+  // ONE camera-facing sheet (a billboard — what games use for
+  // searchlights and sword trails): the triangle contains the lamp→far
+  // axis and is turned each frame so its face points at the camera, so it
+  // can never show a seam or go edge-on into a thin blade.
+  //   facing — 0..1: looking straight down the barrel there is no sheet to
+  //            see, only the glow at the lamp room (IDLE.lighthouse).
+  function beamSheet(b) {
+    const L = { gx: b.gx, gy: b.gy, gz: b.gz };
+    const F = { gx: b.gx + b.ax * b.far, gy: b.gy + b.ay * b.far, gz: b.gz + b.az * b.far };
+    // V: the one world direction that projects to "into the screen" (the
+    // iso projection is orthographic, so it is the same for every point).
+    // Same vx/vy the depth sort uses, plus z = 1; (1,1,1) at angle 0.
+    const vl = Math.hypot(E.cosA + E.sinA, E.cosA - E.sinA, 1);
+    const Vx = (E.cosA + E.sinA) / vl, Vy = (E.cosA - E.sinA) / vl, Vz = 1 / vl;
+    // W = A x V: across the beam AND across the line of sight — the sheet
+    // spanned by A and W is the most face-on a sheet through the axis can
+    // be. |A x V| -> 0 when the beam points at/away from the camera, where
+    // W is unstable, so the shaft fades out before that matters.
+    let wx = b.ay * Vz - b.az * Vy, wy = b.az * Vx - b.ax * Vz, wz = b.ax * Vy - b.ay * Vx;
+    const wl = Math.hypot(wx, wy, wz);
+    const facing = Math.min(1, wl / 0.35);
+    if (facing <= 0) return null;
+    if (wl > 1e-6) { wx /= wl; wy /= wl; wz /= wl; }
+    const hw = b.hw;
+    return { facing, tri: [L,
+      { gx: F.gx + wx * hw, gy: F.gy + wy * hw, gz: F.gz + wz * hw },
+      { gx: F.gx - wx * hw, gy: F.gy - wy * hw, gz: F.gz - wz * hw }] };
+  }
+  const sc = (p) => E.toScreen(p.gx, p.gy, p.gz);
+
+  // Drawn LAST, over the finished world, with 'lighter' (additive)
+  // blending — never in the depth sort. This is what a real engine does
+  // with volumetric light, and it is physically right: a shaft is glowing
+  // AIR between the camera and everything else, so it belongs in front of
+  // whatever it passes. Drawing it behind the world instead (the previous
+  // attempt) chopped it off at the island's silhouette and left a streak
+  // floating in the sky, disconnected from its own lamp.
+  M.drawBeamShaft = () => {
+    for (const b of E.beams) {
+      const S = beamSheet(b);
+      if (!S) continue;
+      E.drawConeSlice(E.ctx, S.tri.map(sc), 0, E.CONE_W, BEAM.alpha * b.strength * S.facing);
+    }
+  };
+
   M.drawGlows = () => {
     const t = E.TILE * E.SCALE;
+    const time = VH.clock.time, rm = !!E.reducedMotion;
     W.monuments.forEach(mon => {
+      const idle = IDLE[mon.id];
+      if (idle && !mon.pending) idle(mon, t, time, rm);
       mon.model.forEach(m => {
         if (!m.glow) return;
         const s = E.toScreen(m.gx + 0.5, m.gy + 0.5, m.gz + m.sz / 2);
@@ -1597,8 +2069,11 @@
                              bnyNavy: '170,205,235' }; // white letters throw a cool-white halo
         const flicker = (sign || E.reducedMotion)
           ? 1 : 0.8 + 0.2 * Math.sin(VH.clock.time * 2.7 + m.gx * 3 + m.gy);
-        E.addLight(s.x, s.y, t * 2.4,
-          sign ? (SIGN_LIGHT[m.color] || '130,175,255') : '255,214,120', 0.22 * flicker);
+        const rgb = sign ? (SIGN_LIGHT[m.color] || '130,175,255') : '255,214,120';
+        E.addLight(s.x, s.y, t * 2.4, rgb, 0.22 * flicker);
+        // the glow lights its neighbours too; low pieces pool on the grass
+        E.addPoint(m.gx + 0.5, m.gy + 0.5, m.gz + m.sz / 2, 2.4, rgb, 0.4 * flicker,
+          { faces: true, ground: m.gz < 1.5 });
       });
     });
   };

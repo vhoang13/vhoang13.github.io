@@ -13,11 +13,16 @@
 
   // ── Stars ───────────────────────────────────────────────────
   const stars = [];
-  for (let i = 0; i < 80; i++) {
+  const STAR_TINTS = ['#ffffff', '#ffffff', '#dfe7ff', '#fff3dc'];
+  for (let i = 0; i < 84; i++) {
+    const bright = i < 7; // a handful of first-magnitude stars carry a 4-point spike
     stars.push({
       x: Math.random(), y: Math.random() * 0.5,
-      size: Math.random() * 1.5 + 0.5,
+      size: bright ? 1.5 + Math.random() * 0.5 : Math.random() * 1.3 + 0.5,
       twinkle: Math.random() * Math.PI * 2,
+      freq: 0.5 + Math.random() * 1.9, // each star breathes at its own pace
+      tint: STAR_TINTS[i % STAR_TINTS.length],
+      bright,
       glow: 0,
     });
   }
@@ -109,9 +114,10 @@
     const ctx = E.ctx;
     stars.forEach(s => {
       const isText = s.isText;
+      const freq = s.freq || 1.5;
       const baseAlpha = isText
         ? 0.06 + Math.sin(clock.time * 1.5 + s.twinkle) * 0.06
-        : 0.3 + Math.sin(clock.time * 1.5 + s.twinkle) * 0.3;
+        : (s.bright ? 0.55 : 0.3) + Math.sin(clock.time * freq + s.twinkle) * (s.bright ? 0.25 : 0.3);
       const glowAlpha = s.glow * 0.9;
       const alpha = Math.min(1, baseAlpha + glowAlpha);
       const sz = s.size * E.SCALE * (1 + s.glow * 1.2);
@@ -120,8 +126,16 @@
         E.addLight(s.x * E.W, s.y * E.H, sz * 3, '255,251,230', s.glow * 0.15);
       }
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = s.glow > 0.2 ? '#fffbe6' : '#fff';
-      ctx.fillRect(s.x * E.W - sz * 0.5, s.y * E.H - sz * 0.5, sz, sz);
+      ctx.fillStyle = s.glow > 0.2 ? '#fffbe6' : (s.tint || '#fff');
+      const px = s.x * E.W, py = s.y * E.H;
+      ctx.fillRect(px - sz * 0.5, py - sz * 0.5, sz, sz);
+      if (s.bright) {
+        // The spike: two thin bars, dimmer than the core, so the star reads
+        // as a point of light rather than a square.
+        ctx.globalAlpha = alpha * 0.22;
+        ctx.fillRect(px - sz * 1.7, py - sz * 0.2, sz * 3.4, sz * 0.4);
+        ctx.fillRect(px - sz * 0.2, py - sz * 1.7, sz * 0.4, sz * 3.4);
+      }
       s.glow = Math.max(0, s.glow - (isText ? GLOW_DECAY_TEXT : GLOW_DECAY) * dt);
     });
     ctx.globalAlpha = 1;
@@ -185,21 +199,126 @@
     }
   };
 
+  // ── Sky (cached bitmap) ─────────────────────────────────────
+  // The sky is ~70% of every frame and used to be a three-stop gradient
+  // allocated per frame. Now it is painted once per viewport: a
+  // zenith→horizon ramp, a soft brightening around the moon (night air
+  // scatters its light), a low lift behind the island, a vignette, and a
+  // noise tile that breaks the banding a flat gradient shows on dark
+  // indigo. One drawImage per frame; zero per-frame gradients.
+  const sky = { canvas: document.createElement('canvas'), key: '' };
+  let noiseTile = null;
+  function makeNoiseTile() {
+    const n = 128, c = document.createElement('canvas'); c.width = c.height = n;
+    const x = c.getContext('2d'), img = x.createImageData(n, n), d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = 128 + (Math.random() * 2 - 1) * 64;
+      d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255;
+    }
+    x.putImageData(img, 0, 0);
+    return c;
+  }
+  FX.drawSky = () => {
+    const ctx = E.ctx;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const key = `${E.W}|${E.H}|${dpr}`;
+    if (sky.key !== key) {
+      sky.key = key;
+      const W = E.W, H = E.H, c = sky.canvas;
+      c.width = W * dpr; c.height = H * dpr;
+      const x = c.getContext('2d');
+      x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const g = x.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#090a17');
+      g.addColorStop(0.32, '#10122a');
+      g.addColorStop(0.64, '#191b3a');
+      g.addColorStop(1, '#1b2446');
+      x.fillStyle = g; x.fillRect(0, 0, W, H);
+      const mx = E.MOON.fx * W, my = E.MOON.fy * H;
+      const mg = x.createRadialGradient(mx, my, 0, mx, my, Math.max(W, H) * 0.6);
+      mg.addColorStop(0, 'rgba(200,196,220,0.17)');
+      mg.addColorStop(0.3, 'rgba(160,160,200,0.06)');
+      mg.addColorStop(1, 'rgba(160,160,200,0)');
+      x.fillStyle = mg; x.fillRect(0, 0, W, H);
+      const hy = H * E.FRAME_ANCHOR;
+      const hg = x.createLinearGradient(0, hy - H * 0.28, 0, hy + H * 0.38);
+      hg.addColorStop(0, 'rgba(92,104,156,0)');
+      hg.addColorStop(0.55, 'rgba(92,104,156,0.11)');
+      hg.addColorStop(1, 'rgba(92,104,156,0)');
+      x.fillStyle = hg; x.fillRect(0, 0, W, H);
+      const vg = x.createRadialGradient(W / 2, H * 0.45, Math.min(W, H) * 0.38, W / 2, H * 0.45, Math.max(W, H) * 0.82);
+      vg.addColorStop(0, 'rgba(3,3,10,0)');
+      vg.addColorStop(1, 'rgba(3,3,10,0.5)');
+      x.fillStyle = vg; x.fillRect(0, 0, W, H);
+      noiseTile = noiseTile || makeNoiseTile();
+      x.globalCompositeOperation = 'overlay';
+      x.globalAlpha = 0.07;
+      x.fillStyle = x.createPattern(noiseTile, 'repeat');
+      x.fillRect(0, 0, W, H);
+      x.globalAlpha = 1;
+      x.globalCompositeOperation = 'source-over';
+    }
+    ctx.drawImage(sky.canvas, 0, 0, sky.canvas.width, sky.canvas.height, 0, 0, E.W, E.H);
+  };
+
   // ── Moon ────────────────────────────────────────────────────
+  // Drawn once into a sprite (rebuilt only when the zoom changes its
+  // radius). The crescent is CARVED out of the sprite with a soft-edged
+  // destination-out — never painted over with a sky-coloured disc, which
+  // was visible as a dark circle beside the moon against the real sky.
+  // Only the HALO is a light: an additive buffer cannot represent dark.
+  const moonSprite = { canvas: document.createElement('canvas'), r: 0, size: 0 };
+  function buildMoonSprite(r) {
+    const S = Math.ceil(r * 2.4), c = moonSprite.canvas;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    c.width = c.height = Math.ceil(S * dpr);
+    const x = c.getContext('2d');
+    x.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cx = S / 2, cy = S / 2;
+    x.save();
+    x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.clip();
+    x.fillStyle = '#ede8d8';
+    x.fillRect(0, 0, S, S);
+    // Limb darkening: the edge of a lit sphere is dimmer than its middle.
+    const lg = x.createRadialGradient(cx - r * 0.3, cy - r * 0.05, r * 0.15, cx, cy, r);
+    lg.addColorStop(0, 'rgba(150,140,115,0)');
+    lg.addColorStop(0.75, 'rgba(150,140,115,0.12)');
+    lg.addColorStop(1, 'rgba(120,110,90,0.42)');
+    x.fillStyle = lg; x.fillRect(0, 0, S, S);
+    // Maria: soft dark seas on the lit side, not two flat dots.
+    const maria = [[-0.42, 0.04, 0.17], [-0.22, -0.34, 0.13], [-0.10, 0.31, 0.11], [-0.50, -0.30, 0.08], [-0.28, 0.46, 0.07], [-0.62, 0.22, 0.06]];
+    for (const [dx, dy, rr] of maria) {
+      const g = x.createRadialGradient(cx + dx * r, cy + dy * r, 0, cx + dx * r, cy + dy * r, rr * r);
+      g.addColorStop(0, 'rgba(118,115,108,0.36)');
+      g.addColorStop(0.65, 'rgba(118,115,108,0.24)');
+      g.addColorStop(1, 'rgba(118,115,108,0)');
+      x.fillStyle = g; x.fillRect(0, 0, S, S);
+    }
+    // Terminator: carve the night side with a softened edge.
+    x.globalCompositeOperation = 'destination-out';
+    const sx = cx + r * 0.35, sy = cy - r * 0.1, sr = r * 0.75;
+    const tg = x.createRadialGradient(sx, sy, sr * 0.9, sx, sy, sr * 1.03);
+    tg.addColorStop(0, 'rgba(0,0,0,1)');
+    tg.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = tg; x.fillRect(0, 0, S, S);
+    x.restore();
+    // Earthshine: the unlit disc is faintly there on a clear night.
+    x.globalCompositeOperation = 'destination-over';
+    x.fillStyle = 'rgba(160,162,190,0.025)';
+    x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fill();
+    x.globalCompositeOperation = 'source-over';
+    moonSprite.r = r; moonSprite.size = S;
+  }
   FX.drawMoon = () => {
     const ctx = E.ctx;
     const mx = E.MOON.fx * E.W, my = E.MOON.fy * E.H, r = E.MOON.r * E.SCALE;
-    // Only the HALO is a light. The body below stays on the main canvas:
-    // its crescent is carved with an opaque sky-coloured disc, and an
-    // additive buffer cannot represent dark (it would fill back in).
     E.addLight(mx, my, r * 3, '220,220,200', 0.08);
-    ctx.fillStyle = '#e8e4d4';
-    ctx.beginPath(); ctx.arc(mx, my, r, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#0d0d1a';
-    ctx.beginPath(); ctx.arc(mx + r * 0.35, my - r * 0.1, r * 0.75, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(180,175,160,0.3)';
-    ctx.beginPath(); ctx.arc(mx - r * 0.3, my + r * 0.1, r * 0.1, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(mx - r * 0.15, my - r * 0.35, r * 0.07, 0, Math.PI * 2); ctx.fill();
+    // Quantised radius: a zoom tween changes SCALE every frame and would
+    // otherwise rebuild the sprite (eight gradients) per frame.
+    const rq = Math.max(8, Math.round(r / 4) * 4);
+    if (moonSprite.r !== rq) buildMoonSprite(rq);
+    const S = moonSprite.size * (r / rq);
+    ctx.drawImage(moonSprite.canvas, mx - S / 2, my - S / 2, S, S);
   };
 
   // ── Moon silhouettes (easter eggs) ──────────────────────────
@@ -545,6 +664,7 @@
       const s = E.toScreen(fl.gx, fl.gy, fl.gz);
       const r = E.TILE * E.SCALE * (fl.r0 + f * fl.r1);
       E.addLight(s.x, s.y, r, fl.col, alpha); // blooms ARE light — one registered light each
+      E.addPoint(fl.gx, fl.gy, fl.gz, fl.r0 + f * fl.r1, fl.col, alpha * 0.8, { faces: true, ground: true });
     }
   };
 
@@ -553,9 +673,12 @@
   const grassTufts = [];
   (function seedGrass() {
     const used = new Set();
-    while (grassTufts.length < 16) {
-      const gx = -5 + Math.floor(Math.random() * 11);
-      const gy = -5 + Math.floor(Math.random() * 11);
+    while (grassTufts.length < 24) {
+      // Half the tufts crowd the rim, where a lawn goes uncut.
+      const rim = grassTufts.length < 12;
+      let gx = -5 + Math.floor(Math.random() * 11);
+      let gy = -5 + Math.floor(Math.random() * 11);
+      if (rim) { if (Math.random() < 0.5) gx = Math.random() < 0.5 ? -5 : 5; else gy = Math.random() < 0.5 ? -5 : 5; }
       const key = gx + ',' + gy;
       if (used.has(key)) continue;
       used.add(key);
@@ -625,6 +748,7 @@
       const r = (2 + pulse * 2) * E.SCALE;
       // Halo is a LIGHT (bloom pass); the body draws additively
       E.addLight(s.x, s.y, r * 4, '216,232,106', 0.35 + pulse * 0.3);
+      E.addPoint(f.px, f.py, f.pz, 1.3, '216,232,106', 0.2 + pulse * 0.15, { faces: true, ground: true });
       ctx.globalCompositeOperation = 'lighter';
       ctx.fillStyle = `rgba(240,248,180,${0.5 + pulse * 0.5})`;
       ctx.beginPath();
@@ -634,28 +758,130 @@
     }
   };
 
-  // ── Clouds (slow drift across the upper sky) ────────────────
-  const clouds = Array.from({ length: 3 }, (_, i) => ({
-    x: Math.random(),                    // fraction of W
-    y: 0.06 + i * 0.06 + Math.random() * 0.03,
-    speed: 0.006 + Math.random() * 0.006, // fraction of W per second
-    scale: 0.7 + Math.random() * 0.6,
-    alpha: 0.035 + Math.random() * 0.02,
-  }));
-
-  FX.updateAndDrawClouds = (dt) => {
-    const ctx = E.ctx;
-    for (const c of clouds) {
-      c.x += c.speed * dt;
-      if (c.x > 1.25) c.x = -0.25;
-      const cx = c.x * E.W, cy = c.y * E.H, s = c.scale * E.SCALE;
-      ctx.fillStyle = `rgba(215,218,235,${c.alpha})`;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, 90 * s, 16 * s, 0, 0, Math.PI * 2);
-      ctx.ellipse(cx - 45 * s, cy + 6 * s, 55 * s, 12 * s, 0, 0, Math.PI * 2);
-      ctx.ellipse(cx + 50 * s, cy + 5 * s, 60 * s, 13 * s, 0, 0, Math.PI * 2);
-      ctx.fill();
+  // ── Clouds ──────────────────────────────────────────────────
+  // Two depth layers. Each cloud is a seeded run of lobes (never the same
+  // three ellipses), lit from the moon's side: a pale copy is drawn first
+  // and the body is drawn over it pushed away from the moon, so the
+  // sliver that remains uncovered is the moonlit rim. Far clouds draw
+  // behind the moon; near clouds cross in front of it and veil it. They
+  // also brighten as they approach the moon, the way real cloud does.
+  function makeCloud(i, far) {
+    const rnd = E.hashRand(i * 7 + 3, far ? 11 : 5, 19);
+    const n = 5 + Math.floor(rnd() * 4), lobes = [];
+    for (let k = 0; k < n; k++) {
+      const t = (k / (n - 1)) * 2 - 1; // -1..1 across the cloud
+      // Cumulus: big lifted lobes in the middle, small flat ones at the
+      // ends, and a flatter base than top.
+      const mid = 1 - Math.abs(t);
+      const rx = 18 + rnd() * 26 * (0.5 + mid * 0.5);
+      lobes.push({
+        dx: t * 66 + (rnd() - 0.5) * 16,
+        dy: (rnd() - 0.5) * 5 - mid * 9,
+        rx, ry: rx * (0.42 + rnd() * 0.22),
+      });
     }
+    return {
+      x: rnd() * 1.4 - 0.2,
+      y: (far ? 0.04 : 0.09) + rnd() * 0.15,
+      speed: (far ? 0.0035 : 0.008) + rnd() * 0.004, // fraction of W per second
+      scale: (far ? 0.55 : 0.9) + rnd() * 0.5,
+      alpha: (far ? 0.06 : 0.09) + rnd() * 0.03,
+      lobes,
+    };
+  }
+  const cloudsFar = [0, 1, 2].map(i => makeCloud(i, true));
+  const cloudsNear = [3, 4, 5].map(i => makeCloud(i, false));
+  // Each cloud is composed OPAQUE in its own small sprite — rim colour over
+  // the whole body, then the body colour shifted away from the moon with
+  // source-atop, so only a moon-side sliver stays pale and nothing spills
+  // outside the silhouette — and the sprite is blitted once at the cloud's
+  // alpha. (Drawing both copies translucently on the main canvas showed the
+  // pale copy through the body as a ghost outline.)
+  const cloudSprite = document.createElement('canvas');
+  const cloudSpriteCtx = cloudSprite.getContext('2d');
+  function drawCloudLayer(list, dt) {
+    const ctx = E.ctx;
+    const mx = E.MOON.fx * E.W, my = E.MOON.fy * E.H;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    for (const c of list) {
+      if (!E.reducedMotion) c.x += c.speed * dt;
+      if (c.x > 1.3) c.x = -0.3;
+      const cx = c.x * E.W, cy = c.y * E.H, s = c.scale * E.SCALE;
+      const ddx = mx - cx, ddy = my - cy, d = Math.hypot(ddx, ddy) || 1;
+      const near = Math.max(0, 1 - d / (E.W * 0.4));
+      const a = Math.min(0.42, c.alpha * 1.5 * (1 + near * 1.3));
+      // sprite bounds: lobes span roughly ±(66+50) in x, ±30 in y, in units of s
+      const hw = Math.ceil(130 * s), hh = Math.ceil(42 * s);
+      const sw = hw * 2, sh = hh * 2;
+      if (cloudSprite.width !== Math.ceil(sw * dpr) || cloudSprite.height !== Math.ceil(sh * dpr)) {
+        cloudSprite.width = Math.ceil(sw * dpr); cloudSprite.height = Math.ceil(sh * dpr);
+      }
+      const x = cloudSpriteCtx;
+      x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      x.globalCompositeOperation = 'source-over';
+      x.clearRect(0, 0, sw, sh);
+      const lobePath = (ox, oy) => {
+        x.beginPath();
+        for (const l of c.lobes) {
+          const lx = hw + (l.dx + ox) * s, ly = hh + (l.dy + oy) * s;
+          x.moveTo(lx + l.rx * s, ly);
+          x.ellipse(lx, ly, l.rx * s, l.ry * s, 0, 0, Math.PI * 2);
+        }
+      };
+      x.fillStyle = '#e6e6f4'; // the moonlit rim
+      lobePath(0, 0); x.fill();
+      x.globalCompositeOperation = 'source-atop';
+      x.fillStyle = '#7d86b4'; // the body, pushed away from the moon
+      const k = 2.4 * (0.6 + near);
+      lobePath(-ddx / d * k, -ddy / d * k); x.fill();
+      ctx.globalAlpha = a;
+      ctx.drawImage(cloudSprite, 0, 0, cloudSprite.width, cloudSprite.height, cx - hw, cy - hh, sw, sh);
+    }
+    ctx.globalAlpha = 1;
+  }
+  FX.drawCloudsFar = (dt) => drawCloudLayer(cloudsFar, dt);
+  FX.drawCloudsNear = (dt) => drawCloudLayer(cloudsNear, dt);
+
+  // ── Void mist ───────────────────────────────────────────────
+  // A soft dark pool under the island so it sits IN the night rather than
+  // pasted onto it. Cached sprite (one radial gradient per zoom level),
+  // drawn on the main canvas before the platform: the light buffer is
+  // additive and cannot darken.
+  const mist = { canvas: document.createElement('canvas'), key: '', w: 0, h: 0 };
+  FX.drawVoidMist = () => {
+    const Wd = VH.world;
+    const ctx = E.ctx;
+    const t = E.TILE * E.SCALE;
+    const span = Wd.GRID_MAX - Wd.GRID_MIN + 1;
+    const rw = span * t * 1.25, rh = span * t * 0.5 * 1.0;
+    const key = rw.toFixed(1);
+    if (mist.key !== key) {
+      mist.key = key;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const c = mist.canvas;
+      mist.w = Math.ceil(rw * 2); mist.h = Math.ceil(rh * 2);
+      c.width = Math.ceil(mist.w * dpr); c.height = Math.ceil(mist.h * dpr);
+      const x = c.getContext('2d');
+      x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      x.translate(mist.w / 2, mist.h / 2);
+      x.scale(1, rh / rw);
+      // A faint haze first (night air under the island), then the dark
+      // core directly beneath it.
+      const h = x.createRadialGradient(0, 0, 0, 0, 0, rw);
+      h.addColorStop(0, 'rgba(110,122,176,0.10)');
+      h.addColorStop(0.6, 'rgba(110,122,176,0.05)');
+      h.addColorStop(1, 'rgba(110,122,176,0)');
+      x.fillStyle = h;
+      x.beginPath(); x.arc(0, 0, rw, 0, Math.PI * 2); x.fill();
+      const g = x.createRadialGradient(0, 0, 0, 0, 0, rw * 0.62);
+      g.addColorStop(0, 'rgba(4,5,16,0.7)');
+      g.addColorStop(0.5, 'rgba(4,5,16,0.35)');
+      g.addColorStop(1, 'rgba(4,5,16,0)');
+      x.fillStyle = g;
+      x.beginPath(); x.arc(0, 0, rw, 0, Math.PI * 2); x.fill();
+    }
+    const c = E.toScreen(0.5, 0.5, -2.9);
+    ctx.drawImage(mist.canvas, c.x - mist.w / 2, c.y - mist.h / 2, mist.w, mist.h);
   };
 
 })();

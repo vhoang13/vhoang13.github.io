@@ -12,14 +12,19 @@
 
   // ── Colors ──────────────────────────────────────────────────
   W.COLORS = {
-    red:    { top: '#e05050', right: '#b03030', front: '#c84040' },
-    blue:   { top: '#5090e0', right: '#3060b0', front: '#4078c8' },
-    green:  { top: '#50c878', right: '#308850', front: '#40a860' },
-    yellow: { top: '#f0d040', right: '#c0a020', front: '#d8b830' },
-    orange: { top: '#f0a030', right: '#c07820', front: '#d88c28' },
-    purple: { top: '#a070d0', right: '#7048a0', front: '#8858b8' },
-    cyan:   { top: '#50c8d8', right: '#3098a8', front: '#40b0c0' },
-    pink:   { top: '#e870a0', right: '#b84878', front: '#d05888' },
+    // Toy palette, sat down into the moonlight (2026-09): ~14% less
+    // saturated than the original primaries, and the side faces pulled a
+    // little toward the sky's cool navy so a stack reads as one lit mass
+    // instead of plastic bricks. Tops keep their hue so a swatch still
+    // says "red" at a glance.
+    red:    { top: '#d65a5a', right: '#98383c', front: '#b3474a' },
+    blue:   { top: '#5a91d6', right: '#375c9d', front: '#4774b6' },
+    green:  { top: '#58c07b', right: '#357851', front: '#459861' },
+    yellow: { top: '#e4c84c', right: '#a48d30', front: '#bfa63d' },
+    orange: { top: '#e39e3d', right: '#a46e30', front: '#bf8337' },
+    purple: { top: '#a077c9', right: '#684b91', front: '#805ba9' },
+    cyan:   { top: '#5ac1ce', right: '#378696', front: '#46a0af' },
+    pink:   { top: '#e078a2', right: '#a04c74', front: '#bb5d85' },
     white:  { top: '#e8e8e0', right: '#b8b8b0', front: '#d0d0c8' },
     grass:  { top: '#4a8c50', right: '#2a5c30', front: '#387040' },
     dirt:   { top: '#8b6b3d', right: '#5c4428', front: '#745832' },
@@ -51,6 +56,8 @@
     girderRed:    { top: '#c25548', right: '#8e372d', front: '#aa463a' }, // crystal palace girders
     graniteRose:  { top: '#d9a08e', right: '#a06a5c', front: '#c08575' }, // obelisk (Luxor granite)
     sand:         { top: '#e2d3ab', right: '#ab9c77', front: '#c9ba92' }, // arena floor
+    water:        { top: '#8fc6ee', right: '#4f86b8', front: '#68a3d6' }, // gardens pools
+    palm:         { top: '#5f9a3c', right: '#39602a', front: '#4c7d33' }, // gardens palm crowns (not 'grass': no flowers)
     pruBlue:      { top: '#79a8e0', right: '#4a6da3', front: '#618cc4' }, // Prudential sign — lit corporate blue
     bnyTeal:      { top: '#45c7b8', right: '#2a8478', front: '#37a596' }, // BNY teal (kept: keys are forever)
     bnyNavy:      { top: '#2b4d78', right: '#17304f', front: '#213e63' }, // BNY sign card — the brand navy ground
@@ -831,16 +838,93 @@
 
   // ── Block rendering ─────────────────────────────────────────
   // Lighting overlay applied to the current path (call right after fill)
+  // Moonlit faces warm toward the moon's colour, faces turned away cool
+  // toward the sky's — the two colour terms every outdoor night scene
+  // has. Same alphas as the old white/black overlays, so the approved
+  // material value structures are unchanged; only the temperature moved.
+  const LIGHT_WARM = '#fff1d2';
+  const LIGHT_COOL = '#0c1030';
   function applyLight(lightFactor, opacity) {
     const ctx = E.ctx;
     if (lightFactor > 0.05) {
       ctx.globalAlpha = opacity * lightFactor * 0.18;
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = LIGHT_WARM;
       ctx.fill();
     } else if (lightFactor < -0.05) {
-      ctx.globalAlpha = opacity * (-lightFactor) * 0.25;
-      ctx.fillStyle = '#000000';
+      ctx.globalAlpha = opacity * (-lightFactor) * 0.27;
+      ctx.fillStyle = LIGHT_COOL;
       ctx.fill();
+    }
+  }
+
+  // The lighthouse beam on a surface. Sibling of applyLight, same idiom
+  // (fills the face path that is already set), and deliberately built from
+  // the same two ingredients a game engine's directional light uses:
+  //
+  //   faceTerm — how squarely this face's ORIENTATION meets the beam.
+  //              Identical for every piece of a wall, so a wall lights as
+  //              one surface. This is the whole fix: earlier versions
+  //              asked each PIECE whether it stood inside the cone, and
+  //              that yes/no edge swept across a monument one piece at a
+  //              time, which is what read as patchy flashing.
+  //   fall     — distance from the LAMP. The lamp never moves, so this
+  //              term is constant in time and cannot make anything flash.
+  //   lobe     — a broad cosine around the beam's heading (exponent
+  //              BEAM.focus). Smooth at every value; no cutoff anywhere.
+  //              focus 0 turns it off and leaves a plain directional wash.
+  const BEAM_WARM = '#ffe9b8';
+  const BEAM_NEAR0 = 1.2, BEAM_NEAR1 = 3.4; // the beam's surface light fades IN over this
+  function applyBeam(faceTerm, cx, cy, opacity) {
+    const bl = E.beamLit;
+    if (!bl || faceTerm <= 0.02) return;
+    const vx = cx - bl.gx, vy = cy - bl.gy;
+    const d = Math.hypot(vx, vy);
+    // Fade IN away from the lamp, as well as out with distance. Two
+    // reasons, and the near one is not cosmetic: a piece sitting AT the
+    // lamp gives a near-zero direction vector, so the lobe below is
+    // numerically unstable there and swung wildly as the beam turned —
+    // measured as a 307/765 jump per 3° on the lighthouse's own pieces
+    // while the Great Wall moved by 3. It is also just true: a lighthouse
+    // does not floodlight its own tower with its beam. The tower is lit by
+    // the lamp's steady point light instead.
+    const nr = Math.min(1, Math.max(0, (d - BEAM_NEAR0) / (BEAM_NEAR1 - BEAM_NEAR0)));
+    if (nr <= 0) return;                      // also guarantees d > BEAM_NEAR0 below
+    const near = nr * nr * (3 - 2 * nr);      // smoothstep
+    const fade = 1 - Math.min(1, d / bl.far);
+    if (fade <= 0) return;
+    let lobe = 1;
+    if (bl.focus > 0) {
+      const c = (vx * bl.dx + vy * bl.dy) / d; // cos of the angle off the beam
+      if (c <= 0) return;
+      lobe = Math.pow(c, bl.focus);
+    }
+    const a = opacity * faceTerm * near * fade * fade * lobe * bl.gain;
+    if (a < 0.004) return;
+    const ctx = E.ctx;
+    ctx.globalAlpha = Math.min(0.55, a);
+    ctx.fillStyle = BEAM_WARM;
+    ctx.fill();
+  }
+
+  // Ambient occlusion band along one edge of a parallelogram face.
+  // o = face origin (screen), a/b = the face's two full-edge vectors,
+  // side: which edge — 'a0' (b=0 line) / 'a1' (b=1 line) run along a,
+  // 'b0' / 'b1' run along b. Three nested quads instead of a gradient,
+  // for the same reason as the contact bands: no per-frame allocation.
+  const AO_STEPS = [0.2, 0.13, 0.065];
+  const AO_ALPHA = 0.07;
+  function aoBand(ctx, o, a, b, side) {
+    const alongA = side[0] === 'a';
+    const along = alongA ? a : b, across = alongA ? b : a;
+    const far = side[1] === '1';
+    for (const w of AO_STEPS) {
+      const s0 = far ? 1 - w : 0, s1 = far ? 1 : w;
+      ctx.beginPath();
+      ctx.moveTo(o.x + across.x * s0, o.y + across.y * s0);
+      ctx.lineTo(o.x + across.x * s0 + along.x, o.y + across.y * s0 + along.y);
+      ctx.lineTo(o.x + across.x * s1 + along.x, o.y + across.y * s1 + along.y);
+      ctx.lineTo(o.x + across.x * s1, o.y + across.y * s1);
+      ctx.closePath(); ctx.fill();
     }
   }
 
@@ -1377,6 +1461,7 @@
     const uz = { x: fv.uz.x * sz, y: fv.uz.y * sz };
     const { xVisible, yVisible } = fv;
     const li = E.li;
+    const bl = E.beamLit;
     const opp = { x: ref.x + ux.x + uy.x + uz.x, y: ref.y + ux.y + uy.y + uz.y };
     const styled = opts.styled;
     // Small-detail pieces skip outlines + rim: 1px strokes on a 0.2-wide
@@ -1400,6 +1485,59 @@
       ctx.stroke();
     };
 
+    // ── Lights on the faces ──────────────────────────────────────
+    // Every POINT light in range is painted onto each visible face as a
+    // SOFT SPOT centred where that light's ray meets the face's plane,
+    // clipped to the face and mapped with the face's own basis — so light
+    // drifts across a surface and wraps around a corner instead of
+    // switching a whole panel on. The spot is the cached per-colour light
+    // sprite; no gradients, no per-face allocation.
+    //
+    // The lighthouse BEAM is deliberately not here (Viet, session 20).
+    // A monument is many small pieces, and every way of asking "is this
+    // lit by the sweeping cone?" — per piece, or per face plane — put
+    // moving edges across a built mass and read as patchy flashing. The
+    // beam is now a shaft in the sky that touches nothing; the lamp room's
+    // own point light (IDLE.lighthouse) still lights its neighbours, and
+    // it never moves, so it cannot flash.
+    //   lit[] = { gx,gy,gz, R (reach), peak (0..1), sprite }
+    const lit = [];
+    if (E.lights.length) {
+      const bx = gx + 0.5, by = gy + 0.5;
+      for (const l of E.lights) {
+        if (!l.faces) continue;
+        const d = Math.hypot(l.gx - bx, l.gy - by, l.gz - gz - sz * 0.5);
+        if (d > l.r + 0.7) continue;
+        lit.push({ gx: l.gx, gy: l.gy, gz: l.gz, R: l.r, peak: l.intensity, sprite: E.lightSprite(l.rgb) });
+      }
+    }
+    // Paint the lights on one face. O = the face's world origin (the
+    // corner that is the path's first point), a/b = the face's world axes
+    // as unit vectors (ax..bz) with their screen images A/B (E.fv per
+    // world unit), n = outward normal, fw/fh = extent in world units.
+    const faceLights = (pathFn, o, O, ax, ay, az, bxx, byy, bz, nx, ny, nz, A, B) => {
+      if (!lit.length) return;
+      let began = false;
+      for (const L of lit) {
+        const dx = L.gx - O[0], dy = L.gy - O[1], dz = L.gz - O[2];
+        const t = dx * nx + dy * ny + dz * nz;        // height of the light above the plane
+        if (t <= 0.03 || t >= L.R) continue;          // behind the face, or out of reach
+        const fx = dx - t * nx, fy = dy - t * ny, fz = dz - t * nz; // foot, relative to O
+        const u = fx * ax + fy * ay + fz * az, v = fx * bxx + fy * byy + fz * bz;
+        const Rp = Math.sqrt(L.R * L.R - t * t);      // reach on the plane
+        const fall = 1 - t / L.R;
+        const alpha = Math.min(0.62, L.peak * fall * fall * 0.85) * opacity;
+        if (alpha < 0.01) continue;
+        if (!began) { ctx.save(); pathFn(); ctx.clip(); ctx.imageSmoothingEnabled = true; began = true; }
+        ctx.save();
+        ctx.transform(A.x, A.y, B.x, B.y, o.x, o.y);
+        ctx.globalAlpha = alpha;
+        ctx.drawImage(L.sprite, u - Rp, v - Rp, Rp * 2, Rp * 2);
+        ctx.restore();
+      }
+      if (began) ctx.restore();
+    };
+
     // ±x side face
     let xFace;
     ctx.globalAlpha = opacity;
@@ -1408,10 +1546,18 @@
       xFace = [P(ux.x, ux.y), P(ux.x + uz.x, ux.y + uz.y), opp, P(ux.x + uy.x, ux.y + uy.y)];
       facePath(...xFace); ctx.fill();
       applyLight(li.pxLight, opacity);
+      applyBeam(bl && bl.px, gx + 0.5, gy + 0.5, opacity);
     } else {
       xFace = [P(0, 0), P(uz.x, uz.y), P(uy.x + uz.x, uy.y + uz.y), P(uy.x, uy.y)];
       facePath(...xFace); ctx.fill();
       applyLight(li.nxLight, opacity);
+      applyBeam(bl && bl.nx, gx + 0.5, gy + 0.5, opacity);
+    }
+    {
+      const xp = xVisible ? gx + (1 + sxy) / 2 : gx + (1 - sxy) / 2;
+      const y0 = gy + (1 - sy) / 2;
+      faceLights(() => facePath(...xFace), xFace[0], [xp, y0, gz], 0, 1, 0, 0, 0, 1, xVisible ? 1 : -1, 0, 0,
+        { x: fv.uy.x, y: fv.uy.y }, { x: fv.uz.x, y: fv.uz.y });
     }
     facePath(...xFace); outline();
 
@@ -1423,10 +1569,18 @@
       yFace = [P(uy.x, uy.y), P(uy.x + uz.x, uy.y + uz.y), opp, P(ux.x + uy.x, ux.y + uy.y)];
       facePath(...yFace); ctx.fill();
       applyLight(li.pyLight, opacity);
+      applyBeam(bl && bl.py, gx + 0.5, gy + 0.5, opacity);
     } else {
       yFace = [P(0, 0), P(uz.x, uz.y), P(ux.x + uz.x, ux.y + uz.y), P(ux.x, ux.y)];
       facePath(...yFace); ctx.fill();
       applyLight(li.nyLight, opacity);
+      applyBeam(bl && bl.ny, gx + 0.5, gy + 0.5, opacity);
+    }
+    {
+      const yp = yVisible ? gy + (1 + sy) / 2 : gy + (1 - sy) / 2;
+      const x0 = gx + (1 - sxy) / 2;
+      faceLights(() => facePath(...yFace), yFace[0], [x0, yp, gz], 1, 0, 0, 0, 0, 1, 0, yVisible ? 1 : -1, 0,
+        { x: fv.ux.x, y: fv.ux.y }, { x: fv.uz.x, y: fv.uz.y });
     }
     facePath(...yFace); outline();
 
@@ -1454,6 +1608,27 @@
       seat(yFace[0], yFace[3]);
     }
 
+    // Ambient occlusion against settled neighbours (blocks only —
+    // opts.ao is the block's integer cell). A neighbour standing
+    // diagonally in front of a side face makes an inside corner along
+    // that face's far edge; a neighbour one level up beside the top face
+    // casts a soft band onto it. This is the difference between a stack
+    // of separate cubes and a single built mass.
+    const ao = E.SCALE >= 0.8 ? opts.ao : null; // sub-pixel when zoomed far out
+    if (ao) {
+      ctx.globalAlpha = opacity * AO_ALPHA;
+      ctx.fillStyle = LIGHT_COOL;
+      const xOut = xVisible ? ao.gx + 1 : ao.gx - 1;
+      const yOut = yVisible ? ao.gy + 1 : ao.gy - 1;
+      // ±x face: origin at its base-near corner, along uy, up uz
+      const xo = xVisible ? P(ux.x, ux.y) : P(0, 0);
+      if (W.settledAt(xOut, ao.gy + 1, ao.gz)) aoBand(ctx, xo, uy, uz, 'b1');
+      if (W.settledAt(xOut, ao.gy - 1, ao.gz)) aoBand(ctx, xo, uy, uz, 'b0');
+      const yo = yVisible ? P(uy.x, uy.y) : P(0, 0);
+      if (W.settledAt(ao.gx + 1, yOut, ao.gz)) aoBand(ctx, yo, ux, uz, 'b1');
+      if (W.settledAt(ao.gx - 1, yOut, ao.gz)) aoBand(ctx, yo, ux, uz, 'b0');
+    }
+
     // Top face
     const topFace = [
       P(uz.x, uz.y),
@@ -1465,6 +1640,19 @@
     ctx.fillStyle = col.top;
     facePath(...topFace); ctx.fill();
     applyLight(li.topLight * 0.5, opacity); // subtle — top is already the lightest shade
+    applyBeam(bl && bl.top, gx + 0.5, gy + 0.5, opacity);
+    faceLights(() => facePath(...topFace), topFace[0], [gx + (1 - sxy) / 2, gy + (1 - sy) / 2, gz + sz], 1, 0, 0, 0, 1, 0, 0, 0, 1,
+      { x: fv.ux.x, y: fv.ux.y }, { x: fv.uy.x, y: fv.uy.y });
+
+    if (ao) {
+      ctx.globalAlpha = opacity * AO_ALPHA;
+      ctx.fillStyle = LIGHT_COOL;
+      const to = P(uz.x, uz.y);
+      if (W.settledAt(ao.gx + 1, ao.gy, ao.gz + 1)) aoBand(ctx, to, ux, uy, 'b1');
+      if (W.settledAt(ao.gx - 1, ao.gy, ao.gz + 1)) aoBand(ctx, to, ux, uy, 'b0');
+      if (W.settledAt(ao.gx, ao.gy + 1, ao.gz + 1)) aoBand(ctx, to, ux, uy, 'a1');
+      if (W.settledAt(ao.gx, ao.gy - 1, ao.gz + 1)) aoBand(ctx, to, ux, uy, 'a0');
+    }
 
     // Per-block lightness jitter (top face only — the most visible)
     if (styled && opts.shade) {
@@ -1564,7 +1752,14 @@
           for (let c = 0; c < nCols; c++) {
             for (let r = 0; r < nRows; r++) {
               const q = [f.o, f.A, (u0 + c * CP) / f.W, (0.10 + r * RP) / H, CW / f.W, RH / H];
-              if (f.rnd() < 0.09) lit.push(q);
+              // The late shift comes and goes: ~9% lit at any moment,
+              // some of them permanent, the rest switching over minutes
+              // on their own slow clocks (still seeded — nothing crawls).
+              const rv = f.rnd();
+              const on = rv < 0.06 || (rv < 0.17 && !E.reducedMotion &&
+                Math.sin(VH.clock.time * 0.06 + rv * 700) > 0.45) ||
+                (rv < 0.09 && E.reducedMotion);
+              if (on) lit.push(q);
               else texMark(ctx, q[0], q[1], uz, q[2], q[3], q[4], q[5]);
             }
           }
@@ -1577,6 +1772,197 @@
           for (const q of lit) texMark(ctx, q[0], q[1], uz, q[2], q[3], q[4], q[5]);
           ctx.globalAlpha = opacity * 0.9;
           ctx.fillStyle = '#ffdf9c'; // the late shift
+          ctx.fill();
+        }
+      }
+      // Face patterns — flagged pieces (the Eiffel Tower). Painted, not
+      // built: the reference render's truss is thousands of tiny voxels,
+      // which this sorter cannot afford, so the OPENINGS are painted as
+      // dark diamonds on the side faces and the light stone left between
+      // them reads as the X-bracing. Anchored to WORLD coordinates (not
+      // to the piece), so the pattern runs continuously across stacked
+      // courses instead of restarting at every joint. 'mullion' is the
+      // gallery version: dark bars across a lit band, leaving windows.
+      // One fill per piece, same batching as the windows above.
+      if (tp.mark) {
+        const lsy = tp.sy != null ? tp.sy : tp.sxy;
+        const H = tp.sz;
+        const faces = [
+          { o: xVisible ? { x: ref.x + ux.x, y: ref.y + ux.y } : ref, A: uy, W: lsy, a0: tp.gy + (1 - lsy) / 2 },
+          { o: yVisible ? { x: ref.x + uy.x, y: ref.y + uy.y } : ref, A: ux, W: tp.sxy, a0: tp.gx + (1 - tp.sxy) / 2 },
+        ];
+        // A rounded arch on face f: foot at the face's base, centred at
+        // uc (cells along the face), w wide, h tall overall (straight
+        // jambs + 7-point semicircle). Adds to the current path.
+        const archPath = (f, uc, w, h) => {
+          const R = w / 2, v1 = h - R;
+          const pt = (u, v) => ({ x: f.o.x + f.A.x * (u / f.W) + uz.x * (v / H), y: f.o.y + f.A.y * (u / f.W) + uz.y * (v / H) });
+          let q = pt(uc - R, 0); ctx.moveTo(q.x, q.y);
+          q = pt(uc - R, v1); ctx.lineTo(q.x, q.y);
+          for (let i = 1; i <= 7; i++) { const t = Math.PI - (i / 8) * Math.PI; q = pt(uc + R * Math.cos(t), v1 + R * Math.sin(t)); ctx.lineTo(q.x, q.y); }
+          q = pt(uc + R, v1); ctx.lineTo(q.x, q.y);
+          q = pt(uc + R, 0); ctx.lineTo(q.x, q.y);
+          ctx.closePath();
+        };
+        ctx.beginPath();
+        if (tp.mark === 'lattice') {
+          const P = 0.16, hd = 0.064;                 // opening pitch, diamond half-size — 0.03 of stone between openings reads as the X-bracing
+          for (const f of faces) {
+            if (f.W < 2 * hd + 0.04) continue;
+            const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
+            const r0 = Math.floor(tp.gz / P), r1 = Math.ceil((tp.gz + H) / P);
+            for (let c = c0; c <= c1; c++) {
+              const a = (c + 0.5) * P;              // opening centre, world units along the face
+              if (a - hd < f.a0 + 0.015 || a + hd > f.a0 + f.W - 0.015) continue;
+              const u = (a - f.a0) / f.W, du = hd / f.W;
+              for (let r = r0; r <= r1; r++) {
+                const zc = (r + 0.5) * P;
+                if (zc - hd < tp.gz + 0.015 || zc + hd > tp.gz + H - 0.015) continue;
+                const v = (zc - tp.gz) / H, dv = hd / H;
+                const cx = f.o.x + f.A.x * u + uz.x * v, cy = f.o.y + f.A.y * u + uz.y * v;
+                ctx.moveTo(cx - f.A.x * du, cy - f.A.y * du);
+                ctx.lineTo(cx + uz.x * dv, cy + uz.y * dv);
+                ctx.lineTo(cx + f.A.x * du, cy + f.A.y * du);
+                ctx.lineTo(cx - uz.x * dv, cy - uz.y * dv);
+                ctx.closePath();
+              }
+            }
+          }
+          ctx.globalAlpha = opacity * 0.55;
+          ctx.fillStyle = '#3b2f22'; // the dark of the openings
+          ctx.fill();
+        } else if (tp.mark === 'windows') {
+          // A row of warm lit windows, centred on each side face. Colour
+          // only — a lit tower with no light (the Eiffel lesson: painted
+          // windows, real lights only where a lamp actually hangs).
+          const P = 0.22, WW = 0.12, WH = 0.16;
+          for (const f of faces) {
+            const n = Math.floor((f.W - 0.10) / P);
+            if (n < 1) continue;
+            const span = n * P - (P - WW), u0 = (f.W - span) / 2, v0 = (H - WH) / 2;
+            for (let c = 0; c < n; c++) texMark(ctx, f.o, f.A, uz, (u0 + c * P) / f.W, v0 / H, WW / f.W, WH / H);
+          }
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#ffdf9c';
+          ctx.fill();
+        } else if (tp.mark === 'gateX' || tp.mark === 'gateY') {
+          // The gate: a dark rounded arch at the foot of the two faces the
+          // wall runs THROUGH (gateY = the faces whose normal is ±y, i.e.
+          // faces[1]; instantiate swaps the axis on odd quarter turns),
+          // plus two painted lanterns flanking it. The lanterns are ink
+          // rather than lamp cubes because a cube on the face would
+          // overhang the cell — the one thing this monument may not do.
+          const f = faces[tp.mark === 'gateY' ? 1 : 0];
+          const AW = 0.36, AH = 0.40, cu = f.W / 2;
+          archPath(f, cu, AW, AH + AW / 2);
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#1a1612';
+          ctx.fill();
+          ctx.beginPath();
+          for (const du of [-0.30, 0.30]) texMark(ctx, f.o, f.A, uz, (cu + du - 0.05) / f.W, 0.72 / H, 0.10 / f.W, 0.10 / H);
+          ctx.globalAlpha = opacity * 0.95;
+          ctx.fillStyle = '#ffdf9c';
+          ctx.fill();
+        } else if (tp.mark === 'arcade') {
+          // The Colosseum's arcade: one ink arch per 0.25 step, anchored
+          // to WORLD coordinates along the face (like lattice) so the
+          // stair-stepped ring shows one rhythm on every exposed sliver,
+          // with a warm lit square inside each foot. Painted, not lit —
+          // the ring carries no glow pieces.
+          const P = 0.25, AW = 0.13, AH = 0.30, LW = 0.07;
+          const spots = [];
+          for (const f of faces) {
+            const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
+            for (let c = c0; c <= c1; c++) {
+              const a = (c + 0.5) * P;
+              if (a - AW / 2 < f.a0 + 0.015 || a + AW / 2 > f.a0 + f.W - 0.015) continue;
+              archPath(f, a - f.a0, AW, AH);
+              spots.push([f, a - f.a0]);
+            }
+          }
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#2a2118';
+          ctx.fill();
+          ctx.beginPath();
+          for (const [f, u] of spots) texMark(ctx, f.o, f.A, uz, (u - LW / 2) / f.W, 0.04 / H, LW / f.W, LW / H);
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#ffdf9c';
+          ctx.fill();
+        } else if (tp.mark === 'terrace' || tp.mark === 'terraceX' || tp.mark === 'terraceY') {
+          // The Hanging Gardens' tier face: a lapis tile band under the
+          // top edge, a row of arches (every other one lit), a waterfall
+          // down the centre of the FALL face (terraceX/Y name the axis in
+          // model space; instantiate swaps it on odd quarter turns; plain
+          // 'terrace' has no fall), and vines hanging from the top edge
+          // at fixed per-column lengths so they never shimmer. Anchored
+          // to world coordinates like lattice. Six batched fills.
+          // band sits 0.15-0.22 below the top edge: the hedge overhang above
+          // hides the top 0.15 of every face at the iso elevation
+          const AP = 0.30, AW = 0.16, AH = 0.30, LS = 0.06, BT = 0.22, BB = 0.15;
+          const WW = 0.24, VP = 0.13, VW = 0.05;
+          const fall = tp.mark === 'terraceY' ? faces[1] : tp.mark === 'terraceX' ? faces[0] : null;
+          const inFall = (f, u0, u1) => f === fall && u1 > (f.W - WW) / 2 && u0 < (f.W + WW) / 2;
+          for (const f of faces) texMark(ctx, f.o, f.A, uz, 0, (H - BT) / H, 1, (BT - BB) / H);
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#3a5db0'; // the glazed tile band
+          ctx.fill();
+          ctx.beginPath();
+          const lit = [];
+          for (const f of faces) {
+            const c0 = Math.floor(f.a0 / AP), c1 = Math.ceil((f.a0 + f.W) / AP);
+            for (let c = c0; c <= c1; c++) {
+              const a = (c + 0.5) * AP;
+              if (a - AW / 2 < f.a0 + 0.015 || a + AW / 2 > f.a0 + f.W - 0.015) continue;
+              archPath(f, a - f.a0, AW, AH);
+              if (c % 2 === 0) lit.push([f, a - f.a0]);
+            }
+          }
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#2a2118';
+          ctx.fill();
+          ctx.beginPath();
+          for (const [f, u] of lit) texMark(ctx, f.o, f.A, uz, (u - LS / 2) / f.W, 0.04 / H, LS / f.W, LS / H);
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#ffdf9c';
+          ctx.fill();
+          if (fall) {
+            ctx.beginPath();
+            texMark(ctx, fall.o, fall.A, uz, (fall.W - WW) / 2 / fall.W, 0, WW / fall.W, (H - BT) / H);
+            ctx.globalAlpha = opacity * 0.92;
+            ctx.fillStyle = '#8fc6ee'; // the fall — colour only, no light
+            ctx.fill();
+            ctx.beginPath();
+            for (const du of [-0.06, 0.06]) texMark(ctx, fall.o, fall.A, uz, (fall.W / 2 + du - 0.015) / fall.W, 0, 0.03 / fall.W, (H - BT) / H);
+            ctx.globalAlpha = opacity * 0.7;
+            ctx.fillStyle = '#eaf7ff'; // white water streaks
+            ctx.fill();
+          }
+          ctx.beginPath();
+          for (const f of faces) {
+            const c0 = Math.floor(f.a0 / VP), c1 = Math.ceil((f.a0 + f.W) / VP);
+            for (let c = c0; c <= c1; c++) {
+              const u0 = c * VP + VP / 2 - VW / 2 - f.a0, u1 = u0 + VW;
+              if (u0 < 0.01 || u1 > f.W - 0.01 || inFall(f, u0, u1)) continue;
+              const len = Math.min(H - 0.02, 0.18 + 0.22 * ((((c * 7919) % 13) + 13) % 13) / 13); // reaches below the overhang's shadow
+              texMark(ctx, f.o, f.A, uz, u0 / f.W, (H - len) / H, VW / f.W, len / H);
+            }
+          }
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#4f7d38'; // hanging vines
+          ctx.fill();
+        } else if (tp.mark === 'mullion') {
+          const P = 0.24, BW = 0.09;                  // window pitch, bar width (cells)
+          for (const f of faces) {
+            if (f.W < P) continue;
+            const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
+            for (let c = c0; c <= c1; c++) {
+              const a = c * P - BW / 2;
+              if (a < f.a0 - 1e-6 || a + BW > f.a0 + f.W + 1e-6) continue;
+              texMark(ctx, f.o, f.A, uz, (a - f.a0) / f.W, 0, BW / f.W, 1);
+            }
+          }
+          ctx.globalAlpha = opacity * 0.85;
+          ctx.fillStyle = '#5a4630'; // dark stone bars between the windows
           ctx.fill();
         }
       }

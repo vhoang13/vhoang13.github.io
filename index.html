@@ -170,6 +170,29 @@
     </div>
   </div>
 
+  <!-- Company summary: tapping the BNY or Prudential tower opens this.
+       The two towers ARE Viet's old jobs, so a tap should say what the
+       job was instead of only offering to be dragged. Same non-modal
+       role=region as the codex and the chat: the world stays live, the
+       close button and Escape both shut it, and only one of the three
+       panels is open at a time (they share the right edge). Content is
+       filled by game.js from the same copy as the case-study pages. -->
+  <div class="company" id="company" role="region" aria-label="Company summary" hidden>
+    <div class="company-header">
+      <div class="company-heads">
+        <div class="company-title" id="companyName"></div>
+        <div class="company-eyebrow" id="companyRole"></div>
+      </div>
+      <button class="company-close" id="companyClose" aria-label="Close company summary">&times;</button>
+    </div>
+    <div class="company-body">
+      <p class="company-lead" id="companyLead"></p>
+      <p class="company-label" id="companyLabel"></p>
+      <ul class="company-points" id="companyPoints"></ul>
+      <a class="company-link" id="companyLink" href="">More on this work &rarr;</a>
+    </div>
+  </div>
+
   <!-- Monument discovery card -->
   <div class="monument-card" id="monumentCard" role="status" aria-live="polite">
     <div class="mc-title" id="mcTitle"></div>
