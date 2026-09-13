@@ -179,7 +179,7 @@
   function applyMonumentMove(mon, dx, dy, dz) {
     mon.cells.forEach(c => { c.gx += dx; c.gy += dy; c.gz += dz; });
     mon.model.forEach(m => { m.gx += dx; m.gy += dy; m.gz += dz; });
-    mon.blocked = VH.monuments.blockedCellsFor(mon.model, mon.cells);
+    mon.blocked = VH.monuments.blockedCellsFor(mon.model, mon.cells, mon.id);
     W.markDirty();
     W.resettle(); // blocks stacked on the moved monument FALL (user decision)
     W.save();
@@ -954,8 +954,8 @@
     VH.monuments.clearCeremonies();
 
     // Monuments explode too: each substantial model piece becomes blast
-    // debris that keeps its shape (the obelisk's gold tip bursts as its
-    // own shell) — one shared policy with the void drop (monumentDebris).
+    // debris that keeps its shape (the lighthouse's lamp room bursts as
+    // its own shell) — one shared policy with the void drop (monumentDebris).
     // markDirty right here: occupancy is keyed off this array.
     W.monuments.forEach(mon => monumentDebris(mon).forEach(d => W.blocks.push(d)));
     W.monuments = [];
@@ -1017,6 +1017,15 @@
   // Nothing here asserts anything the pages do not already say — the
   // bullet list keeps the pages' own future tense, because those case
   // studies are still unwritten.
+  // ═══ UNVERIFIED-CLAIM · revisit before either case study is written ═══
+  // Viet, 2026-09-12: "That's a fine placeholder for now." The lead and
+  // bullets below are a DELIBERATE placeholder, live with his knowledge.
+  // They were originally tagged [INVENTED]; a later session deleted the
+  // tags and rewrote them into future tense, which changed the grammar
+  // and not the truth, and they shipped. Do not tidy this note away.
+  // Checkable and worth getting right: BNY's "65+ task flows" and "six
+  // designers". MIRROR: identical sentences live in site/work/bny/ and
+  // site/work/prudential/ — a correction has to land in both. ═══
   const COMPANIES = {
     bny: {
       name: 'BNY',
@@ -2457,7 +2466,7 @@
       W.resettle();
       if (minGz(mon) !== 0) bad.push('did not land after losing support (minGz ' + minGz(mon) + ')');
       // (4) blocked re-derived at the new height
-      const fresh = M.blockedCellsFor(mon.model, mon.cells)
+      const fresh = M.blockedCellsFor(mon.model, mon.cells, r.id)
         .map(c => c.gx + ',' + c.gy + ',' + c.gz).sort().join('|');
       const held = (mon.blocked || [])
         .map(c => c.gx + ',' + c.gy + ',' + c.gz).sort().join('|');

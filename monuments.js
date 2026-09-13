@@ -76,7 +76,12 @@
         const zc = N * CH;
         box(1, 1, zc, 0.40, 0.40, 0.11 - EPS, 'limestoneCap');         // casing cap
         box(1, 1, zc + 0.11, 0.30, 0.30, 0.11 - EPS, 'limestoneCap');
-        box(1, 1, zc + 0.22, 0.28, 0.28, 0.20, 'gold', true);           // pyramidion
+        // The pyramidion, stepped to a point (session 26) — it is a small
+        // PYRAMID, and it was one gold cube. See the obelisk's note: the
+        // 4px floor governs paint, not geometry.
+        { const N = 5, W0 = 0.30, W1 = 0.05, H = 0.20 / N;
+          for (let i = 0; i < N; i++)
+            box(1, 1, zc + 0.22 + i * H, W0 + (W1 - W0) * i / (N - 1), W0 + (W1 - W0) * i / (N - 1), H - 0.002, 'gold', true); }
         // Portal + braziers on the ledge atop course index 1 (y from 1-half(1)
         // to 1-half(2), z = 2*CH), backs against course 2's south face.
         const ledgeIn = 1 - half(2);
@@ -96,36 +101,39 @@
         [0, 0, 2, 'red'], [1, 0, 2, 'red'], [2, 0, 2, 'red'],
       ],
       // The transform CARVES the passage the player couldn't build.
-      // Myōjin torii (Itsukushima colours): vermilion columns on black
-      // nemaki bases; the nuki tie-beam passes THROUGH the columns and
-      // protrudes past them; the top is the black kasagi (only the
-      // columns are red on the real gate) roofed in copper, with raised
-      // end blocks suggesting the upturned tips. Rect footprints
-      // throughout — the old square lintel rendered as a table top.
-      // 2026-08-27 mass pass: the gate returned 22% of the volume its nine
-      // cubes held and read as smaller than the wall it replaced. Members
-      // thickened per the value of the REAL gate's proportions — columns
-      // 0.42→0.68, lintels deepened — with every joint re-butted to the
-      // new column faces (inner faces now at 0.84 / 2.16) and no piece's
-      // spill grown past what the guard already knows. Nuki stays 0.26
-      // tall: its top must keep butting the gakuzuka at z 1.71.
+      // Rebuilt session 27 from Viet's voxel reference
+      // (assets/reference/torii/), on the same 3x1x3 site — the stone
+      // lanterns, path and cherry trees in the picture are landscape
+      // outside the gate's cells and stay out. What the reference has and
+      // the old build did not: columns on GREY STONE bases, not black
+      // nemaki; a dark mottled STONE kasagi with paler upturned tips, not a
+      // black beam under copper plates; no shrine plaque; slimmer members
+      // (the 2026-08-27 mass pass thickened the columns to 0.68 because
+      // 0.42 read as fence posts — 0.56 sits between, and the reference's
+      // columns are the slimmest thing on its island by design).
+      // The nuki tie-beam is still emitted in its VISIBLE segments (the
+      // parts inside the columns are never seen; a through-beam has no
+      // paint order), ends flush with the footprint edge as before. Every
+      // horizontal member's spill past the footprint is unchanged
+      // (kasagi ±0.25, tips inside it), so the spill guard and occupancy
+      // parity see nothing new.
       model: [
-        [0, 0, 0,    [0.8, 0.8],   0.14, 'kasagiBlack'],  // nemaki L
-        [2, 0, 0,    [0.8, 0.8],   0.14, 'kasagiBlack'],  // nemaki R
-        [0, 0, 0.14, [0.68, 0.68], 1.89, 'vermilion'],    // column L (tucks under the shimaki)
-        [2, 0, 0.14, [0.68, 0.68], 1.89, 'vermilion'],    // column R
-        // Nuki tie-beam in its VISIBLE segments (the parts inside the
-        // columns are never seen; a through-beam has no paint order)
-        [-0.42, 0, 1.45, [0.16, 0.44], 0.26, 'vermilion'], // nuki, protruding end L (flush with the footprint edge, like before)
-        [1, 0, 1.45, [1.32, 0.44],  0.26, 'vermilion'],    // nuki, span between columns
-        [2.42, 0, 1.45, [0.16, 0.44], 0.26, 'vermilion'],  // nuki, protruding end R
-        [1, 0, 1.71, [0.42, 0.42], 0.32, 'vermilion'],    // gakuzuka strut
-        [1, -0.24, 1.78, [0.26, 0.06], 0.22, 'gold'],     // shrine plaque, front face
-        [1, 0, 2.03, [3.2, 0.56],  0.3,  'vermilion'],    // shimaki (columns end here)
-        [1, 0, 2.33, [3.5, 0.64],  0.26, 'kasagiBlack'],  // kasagi
-        [1, 0, 2.59, [3.54, 0.68], 0.1,  'copper'],       // copper roof plates
-        [-0.55, 0, 2.69, [0.4, 0.62], 0.3, 'kasagiBlack'], // upturned tip L (rises above the roofline)
-        [2.55, 0, 2.69, [0.4, 0.62], 0.3, 'kasagiBlack'],  // upturned tip R
+        // Bases and tips are the kasagi's stone family one value lighter
+        // (brickDark under the 'sarsen' mark: the mark turns the brick
+        // joints off and mottles them like the beam). sarsenGrey was
+        // ~20 L too pale and, unmarked, outlined where the beam is not.
+        [0, 0, 0,    [0.72, 0.72], 0.42, 'brickDark', false, '', 0, 'sarsen'],   // stone base L, near a cube like the reference
+        [2, 0, 0,    [0.72, 0.72], 0.42, 'brickDark', false, '', 0, 'sarsen'],   // stone base R
+        [0, 0, 0.42, [0.56, 0.56], 1.60, 'vermilion'],    // column L (tucks under the shimaki)
+        [2, 0, 0.42, [0.56, 0.56], 1.60, 'vermilion'],    // column R
+        [-0.39, 0, 1.32, [0.22, 0.34], 0.26, 'vermilion'], // nuki, protruding end L (flush with the footprint edge)
+        [1, 0, 1.32, [1.44, 0.34],  0.26, 'vermilion'],    // nuki, span between columns
+        [2.39, 0, 1.32, [0.22, 0.34], 0.26, 'vermilion'],  // nuki, protruding end R
+        [1, 0, 1.58, [0.36, 0.36], 0.44, 'vermilion'],    // gakuzuka strut
+        [1, 0, 2.02, [3.2, 0.50],  0.28, 'vermilion'],    // shimaki (columns end here)
+        [1, 0, 2.30, [3.5, 0.62],  0.32, 'kasagiBlack', false, '', 0, 'sarsen'], // kasagi — mottled dark stone
+        [-0.55, 0, 2.62, [0.4, 0.62], 0.30, 'brickDark', false, '', 0, 'sarsen'], // upturned tip L (a step lighter than the beam)
+        [2.55, 0, 2.62, [0.4, 0.62], 0.30, 'brickDark', false, '', 0, 'sarsen'],  // upturned tip R
       ],
     },
     {
@@ -139,36 +147,241 @@
         [2, 2, 0, '*'], [2, 2, 1, '*'],
       ],
       empty: [[1, 1, 0], [1, 0, 0], [0, 1, 0], [2, 1, 0], [1, 2, 0]],
-      // Sarsen grey (not warm limestone): each upright is two stacked,
-      // slightly offset stones — quarried, not machined — under true
-      // rectangular lintels. Two fallen stones in the middle.
-      // 2026-08-27 mass pass: 37% of its eight cubes — sarsens are the
-      // heaviest objects their landscape has, and these read as fence
-      // posts. Stones widened AND deepened (still each slightly different
-      // — quarried, not machined); lintels deepened to match and the
-      // y-pair re-butted to the deeper x-pair (butt faces now at y 0.86).
-      // The (2,2) upright shifts +0.04 so the pocket stone keeps its
-      // exact corner-butt clearances; the big fallen stone grows only
-      // away from those butt faces.
-      model: [
-        [0, 0, 0,      [0.72, 0.68], 0.9,  'sarsenGrey'],
-        [0.03, 0, 0.9, [0.66, 0.62], 0.85, 'sarsenGrey'],
-        [2, 0, 0,      [0.7, 0.68],  0.92, 'sarsenGrey'],
-        [1.97, 0, 0.92,[0.64, 0.6],  0.83, 'sarsenGrey'],
-        [0, 2, 0,      [0.71, 0.66], 0.88, 'sarsenGrey'],
-        [0.02, 2, 0.88,[0.63, 0.61], 0.85, 'sarsenGrey'],
-        [2.04, 2.04, 0,    [0.66, 0.62], 0.95, 'sarsenGrey'],
-        [2.04, 2.04, 0.95, [0.6, 0.55],  0.8,  'sarsenGrey'],
-        [1, 0, 1.75,   [2.5, 0.72],  0.44, 'sarsenGrey'], // lintel, x-pair
-        // y-pair lintel BUTTS the x-pair (they used to cross inside the
-        // shared corner post — two boxes through each other)
+      // Rebuilt session 26 from Viet's voxel reference
+      // (assets/reference/stonehenge/). What that image has and the old
+      // build did not: WARM pale sarsen rather than cool grey; lanterns —
+      // the ring was the only monument on the island with no light at all,
+      // which is why it read dead; stones that have actually FALLEN, lying
+      // flat, where the old pair stood up like stumps; and green at the
+      // feet of the stones.
+      //
+      // Each upright is still two stacked, slightly offset stones —
+      // quarried, not machined — under true rectangular lintels, and the
+      // 2026-08-27 mass proportions are untouched: sarsens are the
+      // heaviest objects their landscape has and thin ones read as fence
+      // posts. The (2,2) upright keeps its +0.04 shift.
+      //
+      // ⚠ EVERYTHING NEW STAYS INSIDE THE FOUR CORNER CELLS. The five
+      // `empty` cells are cleared to BUILD the ring but are NOT claimed
+      // afterwards (no siteZ), so a visitor may already have a block
+      // standing in one. A lantern or a shrub out there would seal it —
+      // the bug this session already shipped once. Occupancy parity is
+      // the check: it must gain nothing.
+      model: (() => {
+        const P = [];
+        const box = (x, y, z, sx, sy, sz, color, glow, mark) =>
+          P.push(mark ? [x, y, z, [sx, sy], sz, color, !!glow, '', 0, mark]
+                      : glow ? [x, y, z, [sx, sy], sz, color, true] : [x, y, z, [sx, sy], sz, color]);
+        const W_ = 'sarsenWarm', D_ = 'stoneDark';
+        // A piece is centred on gx + 0.5, so world-centre cx means gx = cx - 0.5.
+        const at = (cx, cy, z, w, d, h, col, mark) => box(cx - 0.5, cy - 0.5, z, w, d, h, col, false, mark);
+
+        // ── CHISEL (session 27) ───────────────────────────────────
+        // Viet, session 26: "you're adding flat rectangles onto the
+        // blocks instead of removing pieces from the edges and corners."
+        // Session 27, on a stack of slices: "wrong direction entirely."
+        // Then on big corner bites: "the stones don't look solid pieces.
+        // You've lost the form, and I think it's because of the section
+        // of the rock you remove. It looks muddy." His reference, read
+        // properly: the FORM is a clean solid block — that never breaks —
+        // and the chisel work is single cubes nicked out of its edges and
+        // corners, one voxel deep, one voxel tall. The surface is a quiet
+        // low-contrast mosaic ('sarsen' in world.js), never the shape.
+        //
+        // So a stone is its envelope (never exceeded: occupancy identical
+        // to the solid box) built as butted layers; layers carrying the
+        // 'sarsen' mark draw with no outline (world.js VOXEL_MARKS), so
+        // they fuse into one mass and the only visible steps are the
+        // NICKS: a thin layer with one corner voxel simply not emitted.
+        // Every layer is also cut on the cell lines (THE HANGING RULE).
+        const VOX = 0.15;   // one cube of the reference, in cells
+        const rng = (seed) => { let x = seed * 2654435761 % 2147483647;
+          return () => (x = (x * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; };
+        // cuts along one axis [a0, a1]: the ends, every cell line, a voxel
+        // in from each end asked for, and any explicit nick edges; cuts
+        // closer than 0.06 merge
+        const cutsFor = (a0, a1, lo, hi, extra) => {
+          const c = [a0, a1, ...extra];
+          for (let i = Math.ceil(a0 + 0.05); i < a1 - 0.05; i++) c.push(i);
+          if (lo) c.push(a0 + VOX);
+          if (hi) c.push(a1 - VOX);
+          c.sort((p, q) => p - q);
+          const out = [c[0]];
+          for (let i = 1; i < c.length; i++) {
+            if (c[i] - out[out.length - 1] >= 0.06) out.push(c[i]);
+            // a cell line always wins a merge: a nick edge at 0.96 beating
+            // the line at 1.00 is a chunk 0.04 over the cell — a short
+            // overhang, THE HANGING RULE (the audit caught it, not the sweep)
+            else if (Number.isInteger(c[i]) && out.length > 1) out[out.length - 1] = c[i];
+          }
+          if (out[out.length - 1] !== a1) out[out.length - 1] = a1;
+          return out;
+        };
+        // One layer of the envelope. gone = the voxels NOT emitted:
+        //   {sx, sy}          a corner voxel (±1, ±1)
+        //   {sy, ax, bx}      a nick on the y = sy rim, from x = ax to bx
+        //   {sx, ay, by}      a nick on the x = sx rim, from y = ay to by
+        // Every nick is shaded (Viet: "darker where the nicks are, for
+        // depth"): a thin dark floor and dark walls INSIDE the hole, against
+        // whichever neighbours are present — occlusion, in a renderer
+        // that has none. They live inside the removed volume, so nothing
+        // is added to the silhouette and the chunks stay untouched.
+        const DEEP = 'sarsenDeep', WALL = 0.03, FLOOR = 0.02;
+        const layer = (cx, cy, z, W, D, h, gone) => {
+          const x0 = cx - W / 2, x1 = cx + W / 2, y0 = cy - D / 2, y1 = cy + D / 2;
+          const xs = cutsFor(x0, x1, gone.some(g => g.sx < 0), gone.some(g => g.sx > 0),
+            gone.flatMap(g => g.ax != null ? [g.ax, g.bx] : []));
+          const ys = cutsFor(y0, y1, gone.some(g => g.sy < 0), gone.some(g => g.sy > 0),
+            gone.flatMap(g => g.ay != null ? [g.ay, g.by] : []));
+          const side = (arr, i) => arr.length < 3 ? 0 : i === 0 ? -1 : i === arr.length - 2 ? 1 : 0;
+          const isGone = (i, j) => {
+            const sx = side(xs, i), sy = side(ys, j);
+            const mx = (xs[i] + xs[i + 1]) / 2, my = (ys[j] + ys[j + 1]) / 2;
+            return gone.some(g => g.ax != null ? (sy === g.sy && sx === 0 && mx > g.ax && mx < g.bx)
+                              : g.ay != null ? (sx === g.sx && sy === 0 && my > g.ay && my < g.by)
+                              : (sx === g.sx && sy === g.sy));
+          };
+          const present = (i, j) => i >= 0 && j >= 0 && i + 1 < xs.length && j + 1 < ys.length && !isGone(i, j);
+          // The CORE — everything inside the rim voxels — is ONE piece,
+          // never gridded: nick cuts run the whole layer, and a core
+          // chopped into 0.3-cell chunks stopped claiming the lintel's
+          // middle cell (occupancy is per piece, 30% of a tile to claim).
+          const cxLo = xs.length > 2 && gone.some(g => g.sx < 0) ? xs[1] : x0;
+          const cxHi = xs.length > 2 && gone.some(g => g.sx > 0) ? xs[xs.length - 2] : x1;
+          const cyLo = ys.length > 2 && gone.some(g => g.sy < 0) ? ys[1] : y0;
+          const cyHi = ys.length > 2 && gone.some(g => g.sy > 0) ? ys[ys.length - 2] : y1;
+          // …but the core IS still cut on the cell lines: one 2.5-cell
+          // lintel body with voxel-sized chips on top lost 9 pairs at 315deg
+          // in the packed sweep; per-cell bodies lose none (THE HANGING RULE).
+          const cxs = cutsFor(cxLo, cxHi, false, false, []), cys = cutsFor(cyLo, cyHi, false, false, []);
+          for (let i = 0; i + 1 < cxs.length; i++) for (let j = 0; j + 1 < cys.length; j++)
+            at((cxs[i] + cxs[i + 1]) / 2, (cys[j] + cys[j + 1]) / 2, z, cxs[i + 1] - cxs[i], cys[j + 1] - cys[j], h, W_, 'sarsen');
+          const inCore = (ax, bx, ay, by) => ax >= cxLo - 0.001 && bx <= cxHi + 0.001 && ay >= cyLo - 0.001 && by <= cyHi + 0.001;
+          for (let i = 0; i + 1 < xs.length; i++) for (let j = 0; j + 1 < ys.length; j++) {
+            const ax = xs[i], bx = xs[i + 1], ay = ys[j], by = ys[j + 1];
+            if (inCore(ax, bx, ay, by)) continue;
+            if (!isGone(i, j)) {
+              at((ax + bx) / 2, (ay + by) / 2, z, bx - ax, by - ay, h, W_, 'sarsen');
+              continue;
+            }
+            // the hole: floor, then a wall against each present neighbour
+            at((ax + bx) / 2, (ay + by) / 2, z, bx - ax, by - ay, FLOOR, DEEP);
+            const wl = present(i - 1, j), wr = present(i + 1, j), wd = present(i, j - 1), wu = present(i, j + 1);
+            const wh = h - FLOOR, wz = z + FLOOR;
+            if (wl) at(ax + WALL / 2, (ay + by) / 2, wz, WALL, by - ay, wh, DEEP);
+            if (wr) at(bx - WALL / 2, (ay + by) / 2, wz, WALL, by - ay, wh, DEEP);
+            const ix = ax + (wl ? WALL : 0), jx = bx - (wr ? WALL : 0);
+            if (wd) at((ix + jx) / 2, ay + WALL / 2, wz, jx - ix, WALL, wh, DEEP);
+            if (wu) at((ix + jx) / 2, by - WALL / 2, wz, jx - ix, WALL, wh, DEEP);
+          }
+        };
+        const CORNERS = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+        // A whole stone. o.nicks: single-voxel corner nicks at random
+        // heights on the body. o.corner: chance each top-rim corner voxel
+        // is missing. o.edge: nicks per rim edge (fractional = chance of
+        // one); o.long: nicks per LONG edge instead, for a lintel.
+        const chisel = (cx, cy, z0, W, D, H, seed, o = {}) => {
+          const r = rng(seed);
+          const nicks = o.nicks != null ? o.nicks : 2;
+          const topH = VOX + 0.02, nickH = VOX + 0.03;
+          // where the body nicks sit, spaced out, clear of foot and crown
+          const zs = [];
+          for (let k = 0; k < nicks; k++) {
+            const lo = 0.20 + k * (H - topH - 0.45) / nicks, hi = lo + (H - topH - 0.45) / nicks - nickH;
+            if (hi > lo) zs.push(lo + r() * (hi - lo));
+          }
+          let z = 0;
+          for (let nz of zs) {
+            if (nz - z < 0.06) nz = z;         // no sliver layers
+            if (nz > z) layer(cx, cy, z0 + z, W, D, nz - z, []);
+            const [sx, sy] = CORNERS[Math.floor(r() * 4)];
+            layer(cx, cy, z0 + nz, W, D, nickH, [{ sx, sy }]);
+            z = nz + nickH;
+          }
+          let crown = topH;
+          if (H - topH - z < 0.06) crown = H - z; else layer(cx, cy, z0 + z, W, D, H - topH - z, []);
+          // the rim
+          const gone = [];
+          for (const [sx, sy] of CORNERS) if (r() < (o.corner != null ? o.corner : 0.5)) gone.push({ sx, sy });
+          // a nick of one or two voxels somewhere along a rim edge of
+          // length L, clear of the corner voxels
+          const nickOn = (L) => {
+            const len = r() < 0.3 ? 2 * VOX : VOX, room = L - 2 * VOX - len - 0.04;
+            return room > 0 ? [VOX + 0.02 + r() * room, len] : null;
+          };
+          const count = (n) => Math.floor(n) + (r() < n - Math.floor(n) ? 1 : 0);
+          const edgeN = o.edge != null ? o.edge : 0.3;
+          for (const sy of [-1, 1]) for (let k = 0; k < count(W > D && o.long != null ? o.long : edgeN); k++) {
+            const nk = nickOn(W); if (nk) gone.push({ sy, ax: cx - W / 2 + nk[0], bx: cx - W / 2 + nk[0] + nk[1] });
+          }
+          for (const sx of [-1, 1]) for (let k = 0; k < count(D > W && o.long != null ? o.long : edgeN); k++) {
+            const nk = nickOn(D); if (nk) gone.push({ sx, ay: cy - D / 2 + nk[0], by: cy - D / 2 + nk[0] + nk[1] });
+          }
+          layer(cx, cy, z0 + H - crown, W, D, crown, gone);
+        };
+
+        // ── The ring ──────────────────────────────────────────────
+        // Envelopes are unchanged from the solid version, so occupancy is
+        // identical. One stone per upright, not two stacked: the old pair
+        // had the lower 0.03-0.06 wider, and its LIT TOP FACE drew a 2.2px
+        // band at the same height on all four legs — coursing, on the one
+        // stone in the set that must have none.
+        chisel(0.5, 0.5, 0, 0.68, 0.64, 1.75, 11);
+        chisel(2.5, 0.5, 0, 0.66, 0.64, 1.75, 23);
+        chisel(0.5, 2.5, 0, 0.67, 0.62, 1.73, 37);
+        // BROKEN, and it carries no lintel: a bare full-height stone reads
+        // as an unfinished build rather than a ruin. Closing the ring
+        // properly would need two more lintels, and those would claim four
+        // cells a returning player may have a block standing in.
+        chisel(2.54, 2.54, 0, 0.60, 0.56, 1.22, 53, { nicks: 3, corner: 0.8, edge: 0.6 });
+
+        // Lintels: dressed true where they bed on the uprights (no body
+        // nicks); the top rim is the most weathered thing in the ring —
+        // corners gone and nicks all along the long edges (Viet: "more
+        // nicks on the edges of the stones that are lying horizontally").
+        chisel(1.5, 0.5, 1.75, 2.5, 0.72, 0.44, 71, { nicks: 0, corner: 0.8, edge: 0.5, long: 1.6 });   // x-pair
         // y-pair keeps sz 0.35: at 0.44 its top crossed the z=2 claim
-        // threshold (top − SOLID_EPS > 2.0) and newly blocked two tiles —
-        // a gameplay change. Unequal lintels also read right: quarried.
-        [0, 1.305, 1.73, [0.72, 1.89], 0.35, 'sarsenGrey'],
-        [0.95, 1.04, 0, [0.95, 0.62], 0.36, 'sarsenGrey'], // fallen stone
-        [1.56, 1.55, 0, [0.27, 0.4], 0.3, 'stoneDark'],   // second, in the pocket between
-      ],
+        // threshold and newly blocked two tiles — a gameplay change.
+        chisel(0.5, 1.805, 1.73, 0.72, 1.89, 0.35, 89, { nicks: 0, corner: 0.8, edge: 0.5, long: 1.4 });
+
+        // FALLEN, not standing. These were 0.36 and 0.30 tall and read as
+        // two more stumps; a recumbent stone is wide and LOW. Left
+        // un-chiselled: a 0.06 bump on a 0.17 slab is a third of its
+        // height, which reads as damage rather than texture.
+        //
+        // ⚠ EACH SLAB SITS WHOLLY INSIDE ONE CELL. A wide flat piece that
+        // pokes a few hundredths past a cell edge is a SHORT OVERHANG, and
+        // THE HANGING RULE says a piece that hangs must span its whole
+        // edge or stay inside — measured at 6 wrong pairs at 305deg when
+        // the great slab reached 0.02 over, and 0 once pulled inside.
+        at(1.5, 1.54, 0, 0.96, 0.66, 0.17, W_, 'sarsen');
+        at(2.12, 2.55, 0, 0.20, 0.50, 0.13, D_);            // the stone off the broken upright
+
+        // Lanterns on posts at the outward corner of each upright's own
+        // cell. Head 0.15, NOT 0.11: 0.11 is the PAINTED-mark floor, and
+        // that is for a flat mark on a face — a freestanding object has to
+        // read as a silhouette against grass, and at 4px it was a crumb.
+        // The dark cap keeps the head a shape once the bloom blows it out.
+        // Four is the ceiling: a glow piece is a real point light, and the
+        // Eiffel's eight washed its own faces into one blob.
+        for (const [lx, ly] of [[0.075, 0.075], [2.925, 0.075], [0.075, 2.925], [2.925, 2.925]]) {
+          at(lx, ly, 0,    0.10, 0.10, 0.28, D_);
+          box(lx - 0.5, ly - 0.5, 0.28, 0.15, 0.15, 0.14, 'lamp', true);
+          at(lx, ly, 0.42, 0.15, 0.15, 0.04, D_);
+        }
+        // Lichen. One CLUMP of three unequal cubes beside the recumbent
+        // slab — a single cube reads as debris, and the eye lands here —
+        // plus singles in the inner pockets of three corner cells.
+        // 'lichen' rather than grass: grass carries the flower scatter,
+        // and flowers on a burial monument is the wrong note.
+        at(1.45, 1.10, 0, 0.20, 0.18, 0.13, 'lichen');
+        at(1.65, 1.12, 0, 0.14, 0.13, 0.09, 'lichen');
+        at(1.26, 1.10, 0, 0.12, 0.12, 0.08, 'lichen');
+        at(0.93, 0.93, 0, 0.14, 0.14, 0.10, 'lichen');
+        at(2.07, 0.93, 0, 0.13, 0.13, 0.09, 'lichen');
+        at(0.93, 2.07, 0, 0.13, 0.13, 0.10, 'lichen');
+        return P;
+      })(),
     },
     {
       id: 'colosseum',
@@ -389,42 +602,135 @@
         [0, 0, 0, 'white'], [1, 0, 0, 'white'], [2, 0, 0, 'white'],
         [0, 0, 1, 'white'], [1, 0, 1, 'white'], [2, 0, 1, 'white'],
       ],
-      // Parthenon front: three-step stylobate, five fluted columns with
-      // capitals, a true rect architrave, a frieze with triglyph rhythm,
-      // and the stepped pediment triangle. Marble whites over shadow.
-      model: [
-        [1, 0, 0,    [3.4, 1.15], 0.14, 'marbleShadow'], // bottom step
-        [1, 0, 0.14, [3.2, 1.0],  0.12, 'marble'],
-        [1, 0, 0.26, [3.0, 0.9],  0.12, 'marble'],       // stylobate top
-        [0, 0, 0.38, [0.26, 0.26], 0.98, 'lightWhite'],  // columns
-        [0.5, 0, 0.38, [0.26, 0.26], 0.98, 'lightWhite'],
-        [1, 0, 0.38, [0.26, 0.26], 0.98, 'lightWhite'],
-        [1.5, 0, 0.38, [0.26, 0.26], 0.98, 'lightWhite'],
-        [2, 0, 0.38, [0.26, 0.26], 0.98, 'lightWhite'],
-        [0, 0, 1.36, [0.34, 0.34], 0.08, 'marble'],      // capitals
-        [0.5, 0, 1.36, [0.34, 0.34], 0.08, 'marble'],
-        [1, 0, 1.36, [0.34, 0.34], 0.08, 'marble'],
-        [1.5, 0, 1.36, [0.34, 0.34], 0.08, 'marble'],
-        [2, 0, 1.36, [0.34, 0.34], 0.08, 'marble'],
-        [1, 0, 1.44, [3.1, 0.5], 0.18, 'marble'],        // architrave
-        [1, 0, 1.62, [3.1, 0.5], 0.16, 'lightWhite'],    // frieze band
-        // Triglyphs: one plate per frieze FACE (two-sided buried strips
-        // showed through the frieze from behind)
-        [0, -0.28, 1.62, [0.16, 0.06], 0.16, 'marbleShadow'],
-        [0.5, -0.28, 1.62, [0.16, 0.06], 0.16, 'marbleShadow'],
-        [1, -0.28, 1.62, [0.16, 0.06], 0.16, 'marbleShadow'],
-        [1.5, -0.28, 1.62, [0.16, 0.06], 0.16, 'marbleShadow'],
-        [2, -0.28, 1.62, [0.16, 0.06], 0.16, 'marbleShadow'],
-        [0, 0.28, 1.62, [0.16, 0.06], 0.16, 'marbleShadow'],
-        [0.5, 0.28, 1.62, [0.16, 0.06], 0.16, 'marbleShadow'],
-        [1, 0.28, 1.62, [0.16, 0.06], 0.16, 'marbleShadow'],
-        [1.5, 0.28, 1.62, [0.16, 0.06], 0.16, 'marbleShadow'],
-        [2, 0.28, 1.62, [0.16, 0.06], 0.16, 'marbleShadow'],
-        [1, 0, 1.78, [3.3, 0.62], 0.1, 'marble'],        // cornice
-        [1, 0, 1.88, [3.0, 0.5], 0.18, 'lightWhite'],    // pediment steps
-        [1, 0, 2.06, [2.0, 0.44], 0.18, 'marble'],
-        [1, 0, 2.24, [1.0, 0.38], 0.16, 'lightWhite'],
-      ],
+      // Rebuilt session 27 from Viet's voxel reference
+      // (assets/reference/temple/). HIS CALL: stay on the 3x1 site and
+      // build the best possible FRONT ELEVATION — the reference is a full
+      // peristyle with columns on all four sides, which would need a
+      // bigger site and change what a player must build to discover it.
+      //
+      // What the reference has and the old facade did not: PALE WARM
+      // STONE, not blue-white marble; SIX columns, not five, and fatter
+      // ones with a real entasis (a wider drum at the foot, a narrower
+      // one under the capital); a two-part capital (a square abacus over
+      // a round echinus); a RUINED entablature — the architrave is broken
+      // into blocks with gaps, the pediment has lost its apex; and a
+      // lantern glow at the foot of the colonnade. Greek = post and beam,
+      // NO ARCHES anywhere.
+      //
+      // The stylobate steps stay 3.4 / 3.2 / 3.0 wide (the spill guard
+      // knows those figures) and the whole thing stays under z = 2.4, so
+      // occupancy is unchanged.
+      model: (() => {
+        const P = [];
+        const box = (x, y, z, sx, sy, sz, color, glow, mark) =>
+          P.push(mark ? [x, y, z, [sx, sy], sz, color, !!glow, '', 0, mark]
+                      : glow ? [x, y, z, [sx, sy], sz, color, true] : [x, y, z, [sx, sy], sz, color]);
+        const S_ = 'templeStone', D_ = 'templeShade', K_ = 'templeDeep';
+        // CHIP — the Stonehenge chisel, brought to the temple (Viet):
+        // a single cube taken out of a top corner, with a dark floor and
+        // dark walls INSIDE the hole so it reads as depth rather than as
+        // a dark sticker. Corners are (±1, ±1); the hole's outward sides
+        // get no wall, its inward sides do.
+        const VOX = 0.13, WALL = 0.03, FLOOR = 0.02;
+        const chip = (cx, cy, z0, W, D, H, col, gone) => {
+          // a chip needs a whole cube of stone left on every side of it
+          if (W < 3 * VOX || D < 3 * VOX) { box(cx, cy, z0, W, D, H, col); return; }
+          const topH = Math.min(0.15, H * 0.55), bodyH = H - topH;
+          if (bodyH > 0.01) box(cx, cy, z0, W, D, bodyH, col);
+          const x0 = cx - W / 2, x1 = cx + W / 2, y0 = cy - D / 2, y1 = cy + D / 2;
+          const xs = [x0, x0 + VOX, x1 - VOX, x1], ys = [y0, y0 + VOX, y1 - VOX, y1];
+          const z = z0 + bodyH;
+          for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+            const ax = xs[i], bx = xs[i + 1], ay = ys[j], by = ys[j + 1];
+            if (bx - ax < 0.02 || by - ay < 0.02) continue;
+            const sx = i === 0 ? -1 : i === 2 ? 1 : 0, sy = j === 0 ? -1 : j === 2 ? 1 : 0;
+            if (!gone.some(g => g[0] === sx && g[1] === sy)) { box((ax + bx) / 2, (ay + by) / 2, z, bx - ax, by - ay, topH, col); continue; }
+            box((ax + bx) / 2, (ay + by) / 2, z, bx - ax, by - ay, FLOOR, K_);            // the hole's floor, lit but dark
+            const wz = z + FLOOR, wh = topH - FLOOR;
+            if (sx < 0) box(bx - WALL / 2, (ay + by) / 2, wz, WALL, by - ay, wh, K_);
+            else        box(ax + WALL / 2, (ay + by) / 2, wz, WALL, by - ay, wh, K_);
+            const ix = ax + (sx > 0 ? WALL : 0), jx = bx - (sx < 0 ? WALL : 0);
+            if (sy < 0) box((ix + jx) / 2, by - WALL / 2, wz, jx - ix, WALL, wh, K_);
+            else        box((ix + jx) / 2, ay + WALL / 2, wz, jx - ix, WALL, wh, K_);
+          }
+        };
+        box(1, 0, 0,    3.4, 1.15, 0.14, D_);              // stylobate, three steps
+        box(1, 0, 0.14, 3.2, 1.00, 0.12, S_);
+        box(1, 0, 0.26, 3.0, 0.90, 0.12, S_);
+        // Six columns with entasis: a fatter foot drum, a taller shaft, a
+        // narrower neck. 0.30 at the foot (the old 0.26 read as a stick
+        // beside the reference's chunky columns).
+        const COL = [0, 0.4, 0.8, 1.2, 1.6, 2];
+        for (const cx of COL) {
+          box(cx, 0, 0.38, 0.30, 0.30, 0.16, S_);          // foot drum
+          box(cx, 0, 0.54, 0.28, 0.28, 0.62, S_, false, 'flute'); // shaft, fluted
+          box(cx, 0, 1.16, 0.25, 0.25, 0.20, S_, false, 'flute'); // neck
+          box(cx, 0, 1.36, 0.30, 0.30, 0.05, S_);          // echinus
+          box(cx, 0, 1.41, 0.36, 0.36, 0.05, S_);          // abacus
+        }
+        // A RUINED architrave: one block per bay, and the second bay is
+        // MISSING — open to the sky, the way the reference's entablature
+        // is broken. Blocks butt at the column centres.
+        // …and each surviving block is CHIPPED at one top corner.
+        const ARCH = [[0.2, [[-1, -1]]], [1.0, [[1, 1]]], [1.4, [[-1, 1]]], [1.8, [[1, -1]]]];
+        for (const [x, gone] of ARCH) chip(x, 0, 1.46, 0.40, 0.50, 0.18, S_, gone);
+        // The frieze runs only where the architrave does; its triglyph
+        // rhythm is PAINTED ('dentil'), where the old build had twenty
+        // free plates standing on its faces.
+        box(0.2, 0, 1.64, 0.40, 0.50, 0.16, S_, false, 'dentil');
+        box(1.4, 0, 1.64, 1.20, 0.50, 0.16, S_, false, 'dentil');
+        // The cornice is NOT chipped: it is the one piece that overhangs
+        // the site (0.15 each end, the figure the spill guard knows), and
+        // chipping splits it into strips that each carry that spill.
+        box(1, 0, 1.80, 3.3, 0.62, 0.10, S_, false, 'rafter'); // cornice — the beam ends show as vertical divisions, as in the reference
+        // Pediment: the reference's is broken at one end, so the steps
+        // are UNEVEN — but every one stays centred on x = 1, because the
+        // apex is what claims the top cells and occupancy parity must not
+        // move (the check fails on a 0.35 shift).
+        // The pediment, RUINED: only its raking cornice is left — two
+        // slopes of blocks climbing from the ends to a short apex, with
+        // open sky where the tympanum was. Built twice as a filled stack
+        // first (five fat courses, then ten thin ones) and both read as a
+        // ramp at this camera: a centred slab's big lit top face points
+        // away from the viewer, so a stack of them is a staircase, never
+        // a triangle. Two thin runs give the triangle its two edges and
+        // nothing to mistake for a roof.
+        // …and it is SHORT. The rise was 0.50 on a 1.90 facade — a third
+        // of the whole building, so whatever shape it took dominated and
+        // read as a roof. A real pediment rises about a sixth of the
+        // facade. At 0.32 over four courses it reads as the low triangle
+        // it is, and the fifth course is missing at one end: ruined.
+        // Built five ways and compared on screen with Viet: a filled
+        // stack of five fat courses and one of ten thin ones both read as
+        // a wedding cake, a short low triangle read as a ridge, and a
+        // shallow set-back one disappeared. THIS is the one he chose —
+        // only the RAKING CORNICE left, two runs of blocks climbing from
+        // the ends to a short apex with open sky where the tympanum was,
+        // which is both a real gable edge and a real ruin. Each block
+        // carries 'rafter': painted vertical beam divisions, the roof
+        // detail his reference actually shows.
+        const RH = 0.0714;
+        for (let i = 0; i < 6; i++) {
+          box(-0.35 + i * 0.21, 0, 1.90 + i * RH, 0.24, 0.46, RH, i % 2 ? D_ : S_, false, 'rafter');
+          box(2.35 - i * 0.21, 0, 1.90 + i * RH, 0.24, 0.46, RH, i % 2 ? D_ : S_, false, 'rafter');
+        }
+        box(1, 0, 1.90 + 6 * RH, 0.36, 0.46, RH, S_, false, 'rafter'); // apex block (top stays 2.40)
+        // Fallen blocks at the foot, and one lantern in the colonnade —
+        // the temple had no light at all and read dead; the reference is
+        // full of them. All INSIDE the cells: a stray block out on the
+        // grass would seal a tile a returning visitor may have built on.
+        // …ON the stylobate top (z 0.38), not at z 0: the three steps
+        // cover the whole site, so a block at ground level is inside them.
+        chip(2.34, -0.34, 0.38, 0.26, 0.24, 0.16, D_, [[1, -1]]);
+        box(2.38, -0.02, 0.38, 0.18, 0.18, 0.12, S_);
+        chip(-0.34, 0.32, 0.38, 0.22, 0.20, 0.14, D_, [[-1, 1]]);
+        // The lantern stands IN FRONT of the colonnade (y -0.34), clear
+        // of the columns' 0.30 depth, on the stylobate.
+        box(1.4, -0.34, 0.38, 0.14, 0.14, 0.22, D_);       // lantern post
+        box(1.4, -0.34, 0.60, 0.16, 0.16, 0.14, 'lamp', true); // the light
+        box(1.4, -0.34, 0.74, 0.16, 0.16, 0.04, D_);       // cap
+        return P;
+      })(),
     },
     {
       id: 'eiffel',
@@ -444,6 +750,21 @@
         [-1, 0, 0],              [1, 0, 0],
         [-1, 1, 0],  [0, 1, 0],  [1, 1, 0],
       ],
+      // Levels 1 and 2 of the tower's own 3x3 site are the tower's. The
+      // wide 7.90 tower claimed exactly these by geometry — its legs and
+      // first gallery covered 32% of each ring tile against the 30% claim
+      // threshold — so this is the SHIPPED footprint restated, not a new
+      // restriction, and parity confirms it: ZERO cells gained at any
+      // rotation. Shrinking the tower erased that two-point margin, and a
+      // block standing one level up beside a gallery deck is a three-axis
+      // painter's loop (3 wrong pairs at 27.5deg without this).
+      //
+      // NOT level 0: the ground under the arches was free in the shipped
+      // build and a returning visitor may have a block standing there.
+      // NOT level 3: that would newly claim the four diagonal corners.
+      // Both are the sealing direction, which is the one direction that
+      // can trap a block a player already placed.
+      siteZ: [1, 2],
       // GENERATED, not hand-placed — ~190 boxes is past what anyone should
       // type, and every joint below depends on one curve. It is an IIFE
       // inside the literal on purpose: tools/check-*.js eval the RECIPES
@@ -467,6 +788,10 @@
       // old puddled-iron brown is gone.
       model: (() => {
         const P = [];
+        // SCALE, hoisted so everything below can be stated in the units its
+        // constraint is actually in. See the post-pass at the bottom.
+        const VS = 0.72, HS = 0.72;                 // 7.90 -> 5.69 tall, 3.00 -> 2.16 wide
+        const CELL = (v) => v / VS;                 // a length in CELLS -> this generator's pre-scale units
         // mark: a PATTERN drawBlock paints on the side faces — 'lattice'
         // (the truss openings) or 'mullion' (window bars on a lit band).
         // Painted, not built: the piece count and the sorter stay as is.
@@ -527,33 +852,28 @@
           box(0, -d, z, 2 * L, th, th, DARK); box(0, d, z, 2 * L, th, th, DARK);
           box(-d, 0, z, th, 2 * L, th, DARK); box(d, 0, z, th, 2 * L, th, DARK);
         };
-        // A gallery: girder ring under, slab, lamp strip, rail. Returns
-        // the z where the legs resume. `half` = slab half-width.
+        // A gallery: girder ring under, then ONE solid deck whose upper
+        // band is the lit parapet, PAINTED ('balcony'). Returns the z where
+        // the legs resume. `half` = deck half-width.
+        //
+        // This was sixteen pieces (four 0.12 lamp bands + four 0.06 frames
+        // per gallery) standing proud of the deck rim. That is a thin bar
+        // in open air, and the moment the tower shrank those bars dropped
+        // below z = 2 — the height a two-high block stack occupies — and
+        // formed the three-axis painter's loop with the blocks around them
+        // (30 wrong pairs at 135deg; see the 'balcony' mark in world.js).
+        // A painted band on a solid deck has no free piece to sort, so it
+        // is correct at ANY scale. It also drops 16 pieces per tower.
+        //
+        // Still deliberately NOT glow pieces: eight point lights per tower
+        // washed every face between the galleries into one yellow blob.
+        // Only the lantern and the beacon are real lights.
         const gallery = (zTop, girderH, girderDep, slabH, half) => {
           const zg = zTop - girderH;
           ring(zg, girderH, girderDep, LIGHT);
-          box(0, 0, zTop, 2 * half, 2 * half, slabH, LIGHT);
-          // The lit windows: LAMP colour reads as lit on its own. They are
-          // deliberately NOT glow pieces — eight point lights per tower
-          // washed every face between the galleries into one yellow blob.
-          // Only the lantern and the beacon are real lights.
-          //
-          // The dark rail is a FRAME beside the lit band, at the SAME height.
-          // It used to sit one step above the band and wrap the legs, and
-          // that is a painter's cycle by construction: leg behind band (y),
-          // band behind rail (z), rail behind leg (x) — six wrong pairs at
-          // every camera angle. Same height = no z vote = no loop.
-          const zs = zTop + slabH, th = 0.14, e = half - 0.13; // lamp band centre line
-          box(0, -e, zs, 2 * (e + 0.06), 0.12, th, LAMP, false, 'mullion');
-          box(0, e, zs, 2 * (e + 0.06), 0.12, th, LAMP, false, 'mullion');
-          box(-e, 0, zs, 0.12, 2 * (e - 0.06), th, LAMP, false, 'mullion');
-          box(e, 0, zs, 0.12, 2 * (e - 0.06), th, LAMP, false, 'mullion');
-          const f = e + 0.09;                                  // frame centre line
-          box(0, -f, zs, 2 * (f + 0.03), 0.06, th, DARK);
-          box(0, f, zs, 2 * (f + 0.03), 0.06, th, DARK);
-          box(-f, 0, zs, 0.06, 2 * (f - 0.03), th, DARK);
-          box(f, 0, zs, 0.06, 2 * (f - 0.03), th, DARK);
-          return zs;
+          const PAR = CELL(0.16);                              // parapet, 0.16 CELLS after scaling — the painted band needs 0.11 plus a coping
+          box(0, 0, zTop, 2 * half, 2 * half, slabH + PAR - EPS, LIGHT, false, 'balcony');
+          return zTop + slabH + PAR;                           // legs resume ABOVE the deck, never inside it
         };
 
         // ── Build ──
@@ -570,10 +890,21 @@
                                              [-d, -u, dep, len], [-d, u, dep, len], [d, -u, dep, len], [d, u, dep, len]])
               box(bx, by, z, bw, bh, th, LIGHT, false, 'lattice');
           } }
-        let z = gallery(2.2, 0.34, 0.5, 0.16, 1.22);   // first gallery (legs resume at z)
+        // Deck halves are cut to the girder ring beneath them, and the slab
+        // is thin: a plate WIDER than the member below it, repeated up the
+        // shaft, is the pagoda grammar, and the real tower's profile only
+        // ever narrows. (Ring Lx = d + dep/2: 1.156 here, 0.73 above.)
+        let z = gallery(2.2, 0.34, 0.5, 0.08, 1.14);   // first gallery (legs resume at z)
         legs(z, 3.36, 4);
-        brace(2.62); brace(2.88); brace(3.14);
-        z = gallery(3.6, 0.24, 0.36, 0.14, 0.85);      // second gallery
+        // Braces clear z = 2 AFTER scaling — the top of a two-high block
+        // stack. A 0.09 bar in open air with blocks beside it is the
+        // three-axis painter's loop, and this one brace alone was the last
+        // 6 wrong pairs at 135deg once the galleries were painted. Stated
+        // in cells so it survives a change to VS; a hard-coded 2.85 held
+        // the line by 1.9 screen px and no more.
+        const ZBRACE = CELL(2.0) + 0.06;
+        brace(ZBRACE); brace(ZBRACE + 0.20); brace(ZBRACE + 0.40);
+        z = gallery(3.6, 0.24, 0.36, 0.07, 0.71);      // second gallery
         legs(z, 4.8, 4);
         brace(4.0); brace(4.3);
         // The shaft: one column, same light/dark rhythm, tapering to the crown.
@@ -582,12 +913,38 @@
             const zz = 4.8 + i * h, w = W0 + (W1 - W0) * ((i + 0.5) / n), dark = i % 2 === 1;
             box(0, 0, zz, dark ? w - INSET : w, dark ? w - INSET : w, h, dark ? DARK : LIGHT, false, 'lattice');
           } }
-        box(0, 0, 6.2, 0.8, 0.8, 0.12, LIGHT);          // top slab
+        box(0, 0, 6.2, 0.52, 0.52, 0.12, LIGHT);        // top slab — was 0.80 over a 0.42 shaft, a 1.9x overhang directly under the finial and the single worst pagoda tell
         box(0, 0, 6.32, 0.30, 0.30, 0.30, LAMP, true);  // the lantern
         box(0, 0, 6.62, 0.34, 0.34, 0.08, DARK);        // cap
         box(0, 0, 6.70, 0.14, 0.14, 0.50, DARK);        // spire
         box(0, 0, 7.20, 0.06, 0.06, 0.58, DARK);        // antenna
         box(0, 0, 7.78, 0.08, 0.08, 0.12, LAMP, true);  // beacon
+        // SCALE (session 25). Viet: "the Eiffel Tower is way too big
+        // relative to the other monuments." Measured: 7.90 raw against a
+        // median monument of 2.52 and a next-tallest (lighthouse) of 4.39
+        // — 3.1x the median, a different scale entirely, not a taller
+        // member of the same set.
+        //
+        // UNIFORM, not a squash. Height-only was built and compared on
+        // screen against this: it fits the set but goes stocky, 2.1:1
+        // where the real tower is 2.6:1, and slenderness is the whole
+        // identity. Scaling both axes keeps 2.6:1 exactly. Viet picked
+        // this one by eye from the three renders.
+        //
+        // Applied as ONE post-pass on the finished piece list, so the D/S
+        // curves, the arch semicircle and every gallery keep the
+        // relationships they were authored with and nothing can desync.
+        //
+        // Consequence, accepted: at 2.16 wide the legs no longer reach the
+        // corners of the 3x3 site, so those four ground cells are free and
+        // a block can be dropped in the plaza beside a leg. The packed
+        // rotation sweep covers that case. Occupancy parity: 22 cells
+        // RELEASED at every rotation, ZERO gained — the safe direction, so
+        // no returning visitor can have a block sealed inside the tower.
+        if (VS !== 1 || HS !== 1) P.forEach(p => {
+          p[0] *= HS; p[1] *= HS; p[3] = [p[3][0] * HS, p[3][1] * HS];
+          p[2] *= VS; p[4] *= VS;
+        });
         return P;
       })(),
     },
@@ -637,20 +994,72 @@
         [0, 0, 0, 'orange'], [1, 0, 0, 'orange'],
         [0, 0, 1, 'red'], [1, 0, 1, 'red'],
       ],
-      // A real kennel: rect body, stepped gable roof with overhang and a
-      // ridge cap, an arched doorway that PROTRUDES past the front face
-      // (a correct sort hides buried geometry — the door lesson), and a
-      // food bowl by the entrance.
-      model: [
-        [0.5, 0, 0, [1.9, 0.95], 0.85, 'orange'],           // body
-        [0.5, -0.5125, 0.06, [0.5, 0.075], 0.5, 'stoneDark'],   // doorway (face plate)
-        [0.5, -0.5125, 0.56, [0.34, 0.075], 0.14, 'stoneDark'], // arch top
-        [0.5, 0, 0.85, [2.15, 1.15], 0.3, 'lightRed'],      // roof, eaves
-        [0.5, 0, 1.15, [1.45, 1.05], 0.28, 'lightRed'],
-        [0.5, 0, 1.43, [0.75, 0.95], 0.26, 'lightRed'],     // roof, ridge
-        [0.5, 0, 1.69, [0.34, 0.5], 0.1, 'stoneDark'],      // ridge cap
-        [1.1, -0.6, 0, [0.28, 0.24], 0.14, 'gold'],         // food bowl, in front of the house
-      ],
+      // Rebuilt session 27 from Viet's voxel reference
+      // (assets/reference/doghouse/) — the first time this one has had a
+      // reference at all. What it shows: an ALL-RED kennel with a real
+      // GABLE roof (the ridge runs the full length, the roof narrows only
+      // across it — the old roof narrowed both ways and was a hip), the
+      // arched doorway on the GABLE END, not the long side, no food bowl,
+      // clapboard walls, and a white dog with black ears asleep along the
+      // ridge. (The picture's dog is Snoopy; this one is a generic white
+      // voxel dog in the same spirit — the site is public and Peanuts is
+      // licensed property.) Lantern, fence, path and bushes are landscape
+      // outside the two cells.
+      // The recipe's blocks stay orange-below / red-above — that is what
+      // a player BUILDS; the kennel it turns into is red like the picture.
+      // Viet, on the first cut: "finer roof slope", "bigger, better dog",
+      // "add the paneling or wood effect to the side of the house".
+      //   * Ten 0.09 roof steps, 0.033 a side: ~1.2px on desktop (each
+      //     step still gets its lit top) and 0.8px on a phone, where they
+      //     fuse into the smooth slope the reference draws. Every step
+      //     keeps the 2.15 length (spill 0.075 each end, the eaves' old
+      //     figure). The top step is 0.56 wide so the dog's paws rest on it.
+      //   * 'planks' (world.js): American backyard kennel — horizontal
+      //     clapboard joints painted on the walls, world-anchored on z.
+      //   * The door is PAINT ('kennel', a rounded arch) — nothing spills.
+      //   * The dog tops out at 2.07, under the 2.08 that claims z = 2.
+      model: (() => {
+        const P = [];
+        const box = (x, y, z, sx, sy, sz, color, mark) =>
+          P.push(mark ? [x, y, z, [sx, sy], sz, color, false, '', 0, mark] : [x, y, z, [sx, sy], sz, color]);
+        // The body carries TWO marks: 'planksX' (clapboard on every face)
+        // and, through it, the 'kennel' arch — a dark ROUNDED doorway
+        // painted on the GABLE end (Viet: "use the arch for the door";
+        // the old two-plate door was a rectangle with a flat top). Paint,
+        // not plates: a box painter cannot cut a round opening.
+        //
+        // THE X SUFFIX IS LOAD-BEARING. rotMark only turns a mark whose
+        // name ends in X or Y; a bare 'planks' never rotates, so on a
+        // 2x1 footprint the door stayed on the world's x face and landed
+        // mid-FLANK at k=1 and k=3 — half of every orientation a player
+        // can build. Measured face widths were 0.95 / 1.88 / 0.95 / 1.88;
+        // the 1.88s are the long side. Same fix the gate and the temple
+        // doorway already carry (gateX/gateY, doorX/doorY).
+        box(0.5, 0, 0, 1.88, 0.95, 0.85, 'lightRed', 'planksX');      // body, clapboard + arched door
+        for (let i = 0; i < 10; i++)                                  // roof: a gable, full length every step
+          box(0.5, 0, 0.85 + i * 0.09, 2.15, +(1.15 - i * 0.0656).toFixed(3), 0.09, 'red');
+        // The dog, asleep along the ridge, head to the door end. His
+        // legs are PAWS resting on the ridge, not legs hanging down the
+        // slopes: a thin piece in open air beside stepped roof slabs
+        // below z = 2 is THE HANGING RULE, measured at 10 wrong pairs at
+        // 317deg. Viet, tuning him: "shorten his body, his butt looks so
+        // long", "give him eyes like he's asleep", and the eyes go on the
+        // FRONT of the head, not its sides. The audit later asked for a
+        // wider head, ears over the crown and a shallower roof; that
+        // version was built and Viet chose THIS one on screen.
+        box(0.37, 0, 1.75, 0.50, 0.36, 0.20, 'white');                // body, butts the head
+        for (const sy of [-1, 1]) for (const x of [0.21, 0.53])
+          box(x, sy * 0.23, 1.75, 0.18, 0.10, 0.10, 'white');         // a paw, on the ridge beside the body
+        box(-0.04, 0, 1.75, 0.32, 0.32, 0.32, 'white');               // head
+        box(-0.27, 0, 1.80, 0.14, 0.18, 0.14, 'white');               // snout
+        box(-0.38, 0, 1.84, 0.08, 0.08, 0.08, 'kasagiBlack');         // nose
+        box(0.06, -0.21, 1.78, 0.12, 0.10, 0.22, 'kasagiBlack');      // ear, near side (hangs)
+        box(0.06, 0.21, 1.78, 0.12, 0.10, 0.22, 'kasagiBlack');       // ear, far side
+        box(-0.225, -0.15, 1.96, 0.05, 0.10, 0.05, 'kasagiBlack');    // closed eye, near side (0.05 proud, the detail floor)
+        box(-0.225, 0.15, 1.96, 0.05, 0.10, 0.05, 'kasagiBlack');     // closed eye, far side
+        box(0.67, 0, 1.95, 0.10, 0.10, 0.12, 'white');                // tail, up (top 2.07: a hair more and it claims z = 2)
+        return P;
+      })(),
     },
     {
       id: 'lighthouse',
@@ -660,26 +1069,70 @@
         [0, 0, 0, '*'], [0, 0, 1, '*'], [0, 0, 2, '*'],
         [0, 0, 3, 'lamp'],
       ],
-      // The classic banded tower, completed: rock base, door, a real
-      // gallery deck, corner posts framing the lamp room, gallery roof,
-      // dome step, finial.
-      model: [
-        [0, 0, 0, [1.05, 1.05], 0.22, 'sarsenGrey'],       // rock base
-        [0, 0, 0.22, [0.8, 0.8], 0.85, 'lightWhite'],
-        [0, -0.455, 0.22, [0.3, 0.11], 0.52, 'stoneDark'], // door (face plate)
-        [0, 0, 1.07, [0.72, 0.72], 0.85, 'lightRed'],
-        [0, 0, 1.92, [0.64, 0.64], 0.85, 'lightWhite'],
-        [0, 0, 2.77, [0.58, 0.58], 0.6, 'lightRed'],
-        [0, 0, 3.37, [0.9, 0.9], 0.1, 'stoneDark'],        // gallery deck
-        [0, 0, 3.47, [0.5, 0.5], 0.42, 'lamp', true],      // the light
-        [-0.3, -0.3, 3.47, [0.1, 0.1], 0.42, 'kasagiBlack'],
-        [0.3, -0.3, 3.47, [0.1, 0.1], 0.42, 'kasagiBlack'],
-        [-0.3, 0.3, 3.47, [0.1, 0.1], 0.42, 'kasagiBlack'],
-        [0.3, 0.3, 3.47, [0.1, 0.1], 0.42, 'kasagiBlack'],
-        [0, 0, 3.89, [0.6, 0.6], 0.12, 'lightRed'],        // gallery roof
-        [0, 0, 4.01, [0.34, 0.34], 0.22, 'lightRed'],      // dome step
-        [0, 0, 4.23, [0.14, 0.14], 0.16, 'kasagiBlack'],   // finial
-      ],
+      // Rebuilt session 27 from Viet's voxel reference
+      // (assets/reference/lighthouse/) — TOWER ONLY, on the same 1x1x4
+      // site (his call; the keeper's cottage, fences and pier in the
+      // picture would need more cells). What the reference has and the
+      // old build did not: a WHITE tower with TWO red bands, not
+      // alternating red/white courses; a lit window in each white reach;
+      // a real railed gallery of dark posts round the lamp room; a
+      // stepped dark cap to a finial rather than a red roof; and a
+      // continuous taper, which the stepped widths approximate.
+      //
+      // ⚠ THE BEAM IS UNTOUCHED (Viet, session 20/25): beamFor() finds
+      // the ONE piece coloured 'lamp' and takes its gz + sz*0.55 as the
+      // origin, so the lamp stays exactly [3.47, 0.5, 0.42]. Everything
+      // stays in the column and the finial top stays 4.39 — occupancy
+      // parity identical. The railing rails are geometry, not paint, so
+      // the 1.3px floor applies, and they sit at z 3.52, far above the
+      // z = 2 painter's-loop line.
+      model: (() => {
+        const P = [];
+        const box = (x, y, z, sx, sy, sz, color, glow, mark) =>
+          P.push(mark ? [x, y, z, [sx, sy], sz, color, !!glow, '', 0, mark]
+                      : glow ? [x, y, z, [sx, sy], sz, color, true] : [x, y, z, [sx, sy], sz, color]);
+        box(0, 0, 0, 1.05, 1.05, 0.22, 'sarsenGrey');                 // rock foot
+        // Band ORDER follows the reference (the audit caught the first
+        // cut splitting the shaft into equal thirds — stripes again): a
+        // white base reach with a window, ONE wide red band, a white
+        // reach with a window, and a THIN red band right under the
+        // gallery corbel. No door: the reference tower has none (its
+        // door is on the cottage, which is out of scope).
+        box(0, 0, 0.22, 0.80, 0.80, 1.08, 'whitewash', false, 'porthole'); // 0.22-1.30
+        box(0, 0, 1.30, 0.76, 0.76, 0.42, 'lightRed');                // the wide red band
+        box(0, 0, 1.72, 0.72, 0.72, 1.16, 'whitewash', false, 'porthole'); // 1.72-2.88
+        box(0, 0, 2.88, 0.68, 0.68, 0.16, 'lightRed');                // the thin band under the gallery
+        box(0, 0, 3.04, 0.64, 0.64, 0.16, 'whitewash');
+        box(0, 0, 3.20, 0.72, 0.72, 0.08, 'stoneDark');               // corbel under the gallery
+        box(0, 0, 3.28, 0.90, 0.90, 0.10, 'stoneDark');               // gallery deck (beige under the lamp on purpose: the reference deck is pale)
+        box(0, 0, 3.38, 0.60, 0.60, 0.09, 'stoneDark');               // lamp-room floor
+        box(0, 0, 3.47, 0.50, 0.50, 0.42, 'lamp', true);              // THE LIGHT — do not move
+        // Ironwork and cap are 'railIron' (world.js), a warm dark brown
+        // that takes NO lamp light: in kasagiBlack the lamp sprite
+        // creamed every top face within reach and the rail read as a
+        // pale parapet, the cap as mid grey.
+        const I_ = 'railIron';
+        for (const [x, y] of [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]])
+          box(x, y, 3.47, 0.10, 0.10, 0.42, I_);                      // lamp-room posts
+        // the railing: eight posts on the deck rim, a top rail between
+        // them. RH 0.08: the dark SIDE face must beat the top face on
+        // screen (3.0px desktop / 1.8px phone, both over the 1.3px
+        // geometry floor; at 0.04 the phone rail was 0.9px).
+        const R = 0.42, PW = 0.06, RH = 0.08, RT = 0.04;
+        for (const [x, y] of [[-R, -R], [R, -R], [-R, R], [R, R], [-R, 0], [R, 0], [0, -R], [0, R]])
+          box(x, y, 3.38, PW, PW, 0.22, I_);
+        for (const s of [-1, 1]) for (const h of [-1, 1]) {
+          const c = h * (PW / 2 + (R - PW) / 2);                     // rail centre between a corner post and a mid post
+          const len = R - PW;
+          box(c, s * R, 3.60 - RH, len, RT, RH, I_);                  // rails along x at y = ±R
+          box(s * R, c, 3.60 - RH, RT, len, RH, I_);                  // rails along y at x = ±R
+        }
+        box(0, 0, 3.89, 0.66, 0.66, 0.10, I_);                        // gallery roof
+        box(0, 0, 3.99, 0.50, 0.50, 0.12, I_);                        // cap, stepped
+        box(0, 0, 4.11, 0.34, 0.34, 0.10, I_);
+        box(0, 0, 4.21, 0.10, 0.10, 0.18, I_);                        // finial: a spike, not one more step (top stays 4.39)
+        return P;
+      })(),
     },
     {
       id: 'obelisk',
@@ -690,19 +1143,34 @@
       cells: [
         [0, 0, 0, '*'], [0, 0, 1, '*'], [0, 0, 2, '*'], [0, 0, 3, '*'],
       ],
-      // Luxor rose granite on a stepped pedestal, tapering shaft in
-      // shade-varied segments, gilded pyramidion.
-      // 2026-08-27 mass pass: 31% of its four cubes — the needle read as a
-      // stick. Shaft 0.52→0.66 with the taper steps preserved (0.08 per
-      // stage); pure z-stack, every joint still butts.
+      // Rebuilt session 27 from Viet's voxel reference
+      // (assets/reference/obelisk/): PALE ROSY SANDSTONE, not Luxor rose granite,
+      // and no gilding — the pyramidion is the same stone as the shaft,
+      // stepped to a point (session 26's six-tier finding stands: a real
+      // step reads at ~1.3px, so the tiers keep their own lit tops). A grey
+      // stone slab under a two-tier cream pedestal and a plinth, then ONE
+      // continuous shaft — the old three shade-varied segments drew two
+      // course lines on a monolith. 'sandstone' is in the stone material
+      // family, so the shaft gets the sparse tonal blotches the reference
+      // shows for free — and in MONOLITH (world.js), so the cut-stone
+      // branch never draws ashlar courses on it. Widths stay inside the
+      // cell and the tip still reaches 4.33: occupancy parity identical.
       model: [
-        [0, 0, 0, [0.95, 0.95], 0.3, 'stoneDark'],       // base slab
-        [0, 0, 0.3, [0.78, 0.78], 0.45, 'graniteRose'],  // pedestal
-        [0, 0, 0.75, [0.88, 0.88], 0.1, 'stoneDark'],    // pedestal cap
-        [0, 0, 0.85, [0.66, 0.66], 1.1, 'graniteRose'],
-        [0, 0, 1.95, [0.58, 0.58], 1.05, 'graniteRose'],
-        [0, 0, 3.0, [0.5, 0.5], 0.95, 'graniteRose'],
-        [0, 0, 3.95, [0.42, 0.42], 0.38, 'gold', true],  // pyramidion
+        [0, 0, 0,    [0.95, 0.95], 0.20, 'sarsenGrey'],   // grey base slab
+        [0, 0, 0.20, [0.80, 0.80], 0.34, 'sandstone'],    // pedestal, lower tier
+        [0, 0, 0.54, [0.62, 0.62], 0.22, 'sandstone'],    // pedestal, upper tier (0.22, measured off the reference — 0.30 read squat)
+        [0, 0, 0.76, [0.56, 0.56], 0.10, 'sandstone'],    // plinth
+        [0, 0, 0.86, [0.48, 0.48], 2.99, 'sandstone'],    // the shaft, one stone
+        // pyramidion: six stepped tiers of the same stone, to a point.
+        // The FIRST step is 0.034 a side (1.3px, the geometry floor): at
+        // 0.02 it did not read as a step but as a doubled outline, a
+        // collar under the tip.
+        [0, 0, 3.850, [0.412, 0.412], 0.080, 'sandstone'],
+        [0, 0, 3.930, [0.350, 0.350], 0.080, 'sandstone'],
+        [0, 0, 4.010, [0.288, 0.288], 0.080, 'sandstone'],
+        [0, 0, 4.090, [0.226, 0.226], 0.080, 'sandstone'],
+        [0, 0, 4.170, [0.164, 0.164], 0.080, 'sandstone'],
+        [0, 0, 4.250, [0.100, 0.100], 0.080, 'sandstone'],
       ],
     },
     {
@@ -809,12 +1277,50 @@
       // of the 40–60 band; a solid office tower SHOULD read massive.
       model: [
         [1, 0, 0,    [3.05, 1.35], 0.1,  'stoneDark'],     // plaza
-        [1, 0, 0.1,  [2.75, 1.12], 0.34, 'travertineDark'], // podium
+        // Podium — WINDOWED: in the reference it is a four-storey building
+        // the tower rises out of, not a plinth. One row of the curtain
+        // grid is what lands here, and note that the 0.06 is NOT what
+        // produces it: the painter computes usable = H − win − 0.10 =
+        // 0.18, and floor(0.18 / 0.23) is ZERO — the Math.max(1, …) clamp
+        // is doing the work. Every win from 0 to 0.24 renders the same
+        // single row. Do not tune this number expecting a change.
+        [1, 0, 0.1,  [2.75, 1.12], 0.34, 'travertineDark', 0, 0, 0.06],
         [1, 0, 0.44, [2.85, 1.2],  0.08, 'stoneDark'],     // podium cornice
         [1, 0, 0.52, [2.3, 0.46],  3.2,  'travertine', 0, 0, 0.55], // the slab shaft — windowed, blank parapet above
         [1, -0.26, 3.26, [2.0, 0.06], 0.3, 'pruBlue', true, 'prudential'], // sign, front face (glow + wordmark)
         [1, 0.26, 3.26,  [2.0, 0.06], 0.3, 'pruBlue', true, 'prudential'], // sign, rear face
-        [1, 0, 3.72, [0.12, 0.12], 0.44, 'ironBronze'],    // flagpole
+        // The crown. Full.jpg caps the slab with a DARK SLATTED BAND — the
+        // mechanical screen — and without it the tower just stops. Inset
+        // 0.05 / 0.03 from the shaft so no plate is wider than the member
+        // under it, and wholly inside gz = 3, which the shaft already
+        // claims: parity unchanged.
+        // A BAND THIS THIN IS NOT A BAND. At 0.08 the louvre was 3.0px
+        // desktop / 1.8px phone, and — unlike a step, which reads at
+        // ~1.3px because a LIT TOP meets a SHADED SIDE — this is a dark
+        // front face wedged between two pale front faces. There is no
+        // top/side value break to carry it, so it antialiased into a
+        // seam and read as the coping's drop shadow. The geometric step
+        // floor does not apply to a sandwiched band; it needs real
+        // thickness. 0.18 is 6.7px / 4.1px, and it is 5.4% of the tower
+        // against the reference's ~6.8%. The coping goes 0.06 → 0.08 for
+        // the same reason: 0.06 is 1.4px on a phone and would have
+        // aliased into the louvre it is meant to cap.
+        [1, 0, 3.72, [2.2, 0.40], 0.18, 'pruLouvre'],      // mechanical screen
+        [1, 0, 3.90, [2.3, 0.46], 0.08, 'travertine'],     // pale coping over it — without this the dark band is a HAT, and the reference keeps a stone parapet above the louvres
+        // THE FLAGPOLE, which was reading as a chimney: 0.12 of dark
+        // bronze, dead centre on the skyline, is a stubby dark box at
+        // this camera. The reference is a thin PALE pole with the flag
+        // on it. 0.08 is 3.0px desktop / 1.8px phone, over the ~1.3px a
+        // real geometric step needs; the flag is 0.05 deep for the same
+        // reason. Top stays 4.16 exactly, so nothing above changes.
+        // A REAL MAST. The thick louvre and a flagpole were fighting over
+        // the same 0.44 above the shaft — but the height cap was never
+        // 4.16: the pole's only occupancy effect is claiming gz = 4, and
+        // it does that anywhere from 4.09 to 5.0. So the mast runs to
+        // 4.40 and both fit. The flag flies from the TOP, as in the
+        // reference, not from halfway down where it read as a lever.
+        [1, 0, 3.98, [0.08, 0.08], 0.42, 'whitewash'],     // the mast
+        [1.17, 0, 4.24, [0.26, 0.05], 0.13, 'lightRed'],   // the flag — x 1.54–1.80, clear of the mast's 1.46–1.54
       ],
     },
     {
@@ -843,38 +1349,149 @@
         [0, 0, 1, 'cyan'], [1, 0, 1, 'cyan'], [2, 0, 1, 'cyan'],
         [0, 1, 1, 'cyan'], [1, 1, 1, 'cyan'], [2, 1, 1, 'cyan'],
       ],
-      // The ribbon read is built in GEOMETRY, not texture: the body is a
-      // stack of alternating slabs — pale spandrel bands ('lightWhite',
-      // faces < 0.8 cells² so the marble family stays clean) and dark
-      // night-glazing bands ('bnyGlass', no material family). Robust at
-      // every zoom, zero new draw code. Mass 92% of its twelve cubes —
-      // NOT the towers' 40–60 band, deliberately: that band repaired the
-      // thin five, and on a wide footprint it would force a squat plinth
-      // (60% volume = a 1.2-cell-tall slab losing to its own 2-cube
-      // stack). The chunky healthy monuments are the right reference:
-      // colosseum 90%, pyramid 91%. Height 126% of the stack.
-      model: [
-        [1, 0.5, 0,    [3.3, 2.3],   0.08, 'stoneDark'],   // plaza (street trees' ground)
-        [1, 0.5, 0.08, [2.95, 1.95], 0.26, 'bnyGlass'],    // glass lobby storey
-        [1, 0.5, 0.34, [2.8, 1.8],   0.09, 'lightWhite'],  // spandrel
-        [1, 0.5, 0.43, [2.8, 1.8],   0.13, 'bnyGlass'],    // ribbon
-        [1, 0.5, 0.56, [2.8, 1.8],   0.09, 'lightWhite'],
-        [1, 0.5, 0.65, [2.8, 1.8],   0.13, 'bnyGlass'],
-        [1, 0.5, 0.78, [2.8, 1.8],   0.09, 'lightWhite'],
-        [1, 0.5, 0.87, [2.8, 1.8],   0.13, 'bnyGlass'],
-        [1, 0.5, 1.0,  [2.8, 1.8],   0.09, 'lightWhite'],
-        [1, 0.5, 1.09, [2.8, 1.8],   0.13, 'bnyGlass'],
-        [1, 0.5, 1.22, [2.8, 1.8],   0.09, 'lightWhite'],
-        [1, 0.5, 1.31, [2.8, 1.8],   0.13, 'bnyGlass'],
-        [1, 0.5, 1.44, [2.8, 1.8],   0.09, 'lightWhite'],
-        [1, 0.5, 1.53, [2.8, 1.8],   0.13, 'bnyGlass'],
-        [1, 0.5, 1.66, [2.8, 1.8],   0.26, 'lightWhite'],  // parapet band — carries the sign
-        [1, -0.43, 1.69, [1.3, 0.06], 0.2, 'bnyNavy', true, 'bny'], // sign card, front face (navy ground, white BNY, teal arrow)
-        [1, 1.43, 1.69,  [1.3, 0.06], 0.2, 'bnyNavy', true, 'bny'], // sign card, rear face
-        [0.85, 0.5, 1.92, [2.3, 1.5], 0.16, 'lightWhite'], // roof terrace, first setback
-        [0.65, 0.5, 2.08, [1.7, 1.2], 0.16, 'lightWhite'], // second setback — the staircase roofline
-        [0.55, 0.55, 2.24, [0.42, 0.42], 0.28, 'lightWhite'], // the rooftop drum
-      ],
+      // Rebuilt session 28 from Viet's photographs (assets/reference/bny/):
+      // 240 Greenwich St, SOM 1983. Three things in those photos decide
+      // the read, and none of them was in the build before this one.
+      //
+      // 1. THE CORNERS ARE ROUNDED, and it is the building's signature —
+      //    the ribbon runs round the curve without a break. A square
+      //    corner makes it any office box. There is no diagonal in this
+      //    engine, so every course is an OCTAGON: three butted boxes (a
+      //    full-width middle, a narrower plate front and back) that take
+      //    a 0.34-cell notch out of each corner. 0.34 is 12px desktop /
+      //    7px phone — one step, visible, and NOT a staircase.
+      // 2. THE ROOF STEPS BACK, NOT DOWN. The terraces in the photo
+      //    retreat toward the far side and off to one end. Concentric
+      //    setbacks would be the session-27 staircase again (a stack of
+      //    centred slabs at this camera reads as a ramp).
+      // 3. THE DRUM IS BIG. The white mechanical cylinder near one end
+      //    is the tallest thing on the roof and reads at a glance; the
+      //    old 0.42 cube read as a chimney.
+      //
+      // Colour: 'bnySilver' (world.js) replaces 'lightWhite' on every
+      // pale band. lightWhite is the TEMPLE'S MARBLE — its veins fire on
+      // a 2.8-cell face, the same trap that produced 'whitewash' for the
+      // lighthouse — and it is warm cream where these photos are cool
+      // silver. Glass stays 'bnyGlass'. The ribbon is still GEOMETRY,
+      // not texture: alternating slabs, robust at every zoom.
+      //
+      // Extents, per-piece cell cover and the occupied cell stack are
+      // unchanged, so occupancy parity is identical (read against
+      // 5b6095d, not HEAD — a guard that applies a new rule to both
+      // sides of a comparison cannot see a rule change).
+      model: (() => {
+        const P = [];
+        const CH = 0.34; // the corner notch, in cells
+        // One course as an octagon: a full-width middle box, then a
+        // plate front and back set in by the notch. Butted on y, so
+        // disjoint by construction; the outline on each box IS the
+        // corner line.
+        const oct = (cx, cy, z, w, d, h, color, c = CH, mark) => {
+          const put = (x, y, sx, sy) => P.push(mark ? [x, y, z, [sx, sy], h, color, 0, 0, 0, mark]
+                                                   : [x, y, z, [sx, sy], h, color]);
+          put(cx, cy, w, d - 2 * c);
+          put(cx, cy - (d - c) / 2, w - 2 * c, c);
+          put(cx, cy + (d - c) / 2, w - 2 * c, c);
+        };
+        const SIL = 'bnySilver', GLZ = 'bnyGlass';
+        P.push([1, 0.5, 0, [3.3, 2.3], 0.08, 'stoneDark']); // plaza (street trees' ground)
+        // The lobby's notch is CH like everything else, but note that this
+        // does NOT put its chamfer on the tower's line: the chamfer sits
+        // at cy + 0.5 − d/2 + c, and the lobby is 1.95 deep against the
+        // body's 1.80, so it lands 0.075 cells outboard. That is harmless
+        // — the lobby is wider on every side, so the offset reads as a
+        // plinth — but it is NOT alignment, and the next person to touch
+        // this should not believe it is.
+        oct(1, 0.5, 0.08, 2.95, 1.95, 0.30, GLZ);           // the taller glass lobby storey
+        // Seven ribbon storeys: pale spandrel + dark night glazing, 0.21
+        // apart. Both are GEOMETRY at 3.3px / 4.4px desktop, well over
+        // the 1.3px floor a real step needs, and they wrap the notched
+        // corner unbroken — which is the whole point of the building.
+        for (let i = 0; i < 7; i++) {
+          const z = 0.38 + i * 0.21;
+          oct(1, 0.5, z, 2.8, 1.8, 0.09, SIL);
+          // The glazing band carries 'ribbon' (world.js): the late shift,
+          // ~9% of the windows alight, world-anchored so the verticals
+          // run unbroken up the tower and round the notched corner. All
+          // three boxes of the octagon carry it — the broad FRONT face
+          // belongs to the corner plate, not to the middle box, so
+          // marking only the middle would light the sides and leave the
+          // face dark.
+          oct(1, 0.5, z + 0.09, 2.8, 1.8, 0.12, GLZ, CH, 'ribbon');
+        }
+        oct(1, 0.5, 1.85, 2.8, 1.8, 0.14, SIL);             // blank parapet band — carries the sign
+        // The sign cards sit ON the parapet's front and back plates,
+        // 1.10 wide, not 1.30: the corner notch shortens that plate to
+        // x 0.44–2.56.
+        // THE SIGN'S LEGIBILITY IS SET BY THE PLATE'S HEIGHT, not its
+        // width. drawBlock lays the wordmark out in FACE FRACTIONS
+        // (world.js: rowH = 0.60 / 5), so five glyph rows share 60% of
+        // whatever the plate is tall: at 0.20 that is 0.89px a row on
+        // desktop and half a pixel on a phone, and "BNY" came out as
+        // hash no matter how wide the card got. 0.40 doubles the cap
+        // height to 8.9px / 5.3px, which is the smallest that resolves.
+        // The card therefore runs DOWN over the top ribbon course, the
+        // way a real two-storey tower sign does, rather than up — up is
+        // capped by z = 2.
+        // It stays occupancy-free because it is only 0.06 DEEP, at
+        // y 0.04–0.10 and 1.90–1.96: it never overlaps a cell by more
+        // than SOLID_EPS in y, whatever it does in z. gx 1.0, not 1.05
+        // — 0.05 off the building's axis is 1.9px of visible mis-centring.
+        P.push([1.0, -0.43, 1.65, [1.6, 0.06], 0.40, 'bnyNavy', true, 'bny']);
+        P.push([1.0,  1.43, 1.65, [1.6, 0.06], 0.40, 'bnyNavy', true, 'bny']);
+        // THE HEIGHT IS CAPPED BY OCCUPANCY, not by taste. Anything
+        // full-width crossing z = 2 by more than SOLID_EPS claims the
+        // gz = 2 cells over the tower's own column, and the old build
+        // claims only four of the six — sealing the other two is the
+        // session-25 blocker (a returning visitor's block on the roof
+        // becomes unclickable). So the parapet stops at 2.05 (a 0.05
+        // crossing, under the epsilon) and the ONLY thing above it is
+        // the drum, sized to claim exactly the four cells the shipped
+        // build already claims. Parity vs 5b6095d: identical at every
+        // rotation. The stepped terraces in the photo would each be a
+        // 0.05 sliver inside what is left, and slivers read as trays —
+        // one prominent drum is the honest reading at this scale.
+        // The COPING is the same dark roof colour and full width, and it
+        // exists to kill a white lid: the parapet's top face is a fully
+        // lit plane the width of the whole building, and at this camera
+        // it read as a bigger white surface than the roof itself. It
+        // stops at 2.05 — a 0.05 crossing of z = 2, under SOLID_EPS —
+        // so a full-width piece up here claims nothing.
+        oct(1, 0.5, 1.99, 2.8, 1.8, 0.06, 'bnyRoof');             // dark coping over the parapet
+        // THE DECK IS ONE BOX. The same rule as the drum below: a notch
+        // rounds a SILHOUETTE, and a roof deck has none — its top face
+        // is horizontal, so the octagon bought nothing and cost two
+        // outlines running across the roof plane, which read as stacked
+        // trays. It also has a real rim on all four sides now; at
+        // x 0.10 it was FLUSH with the body's west edge, so half the
+        // roof was a terrace and half was a cliff.
+        // Colour is bnyRoof, not the glass: in both photographs the roof
+        // terrace is LIGHTER than the glazing, and a deck darker than
+        // the ribbon read as a light-well punched through the building.
+        // It claims all four gz = 2 cells on its own (0.12 of z, over
+        // SOLID_EPS; 0.60 of every own column; x1 = 2.00 never reaches
+        // gx = 2), which is what frees the drum to be small.
+        P.push([0.70, 0.50, 2.05, [1.60, 1.20], 0.12, 'bnyRoof']); // roof deck — x 0.40–2.00, y 0.40–1.60
+        // THE DRUM IS ONE BOX, and the octagon idiom does not apply to
+        // it. Every plate of a 0.90 octagon clears STROKE_MIN, so all
+        // three get their own outline, and at this size that reads as
+        // two white buildings butted together with a seam down the
+        // middle — the brightest, tallest object in the frame, split.
+        // The notch that rounds a 2.8-cell facade cannot round a
+        // 0.9-cell drum; below about 1.5 cells, one solid box wins.
+        // AND IT IS SMALL. At 0.90 x 0.52 it was 43% of the building's
+        // screen width and 40% of its height — against 10% and 6% in the
+        // photograph — in the brightest colour in the palette, so the
+        // monument read as a low-rise with a white shed on it. The
+        // earlier "sized to claim exactly four cells" reasoning was
+        // simply wrong: the DECK claims all four on its own, so the drum
+        // is free. 0.55 across is 20px desktop / 12px phone, still the
+        // tallest thing up there, and it sits back and to the +x end as
+        // in the photo. x 1.30–1.85, y 0.85–1.40, inside the deck with
+        // 0.15 of rim at its tightest.
+        P.push([1.075, 0.625, 2.17, [0.55, 0.55], 0.34, 'bnyDrum']); // the drum
+        return P;
+      })(),
     },
   ];
   // Bigger recipes first so a large pattern isn't stolen by a smaller one
@@ -1157,7 +1774,7 @@
   // inside the monument. Derived, never persisted — stays correct if
   // E.SOLID_EPS is ever retuned.
   // OUTSIDE the recipe's own columns a graze must not claim the tile.
-  // Deliberate overhangs (the torii's kasagi projects 0.27 past its posts,
+  // Deliberate overhangs (the torii's kasagi projects 0.25 past its posts,
   // the temple's bottom step 0.2, the doghouse's food bowl 0.22) used to
   // pass the SOLID_EPS test and steal the neighbouring tile of open grass:
   // getStackHeight skipped the invisibly-claimed cell, so the first block
@@ -1171,7 +1788,75 @@
   // stay unbuildable however thin they are.
   M.CLAIM_COVER_MIN = 0.30;
 
-  function blockedCellsFor(model, cells) {
+  // Recover a placement (ox, oy, oz, k) from cells already in the world.
+  // The cells are the only thing that survives a save AND the only thing a
+  // drag updates, so the pose must be DERIVED, never stored — a stored
+  // origin goes stale the first time the monument is moved.
+  function poseOf(recipe, cells, at) {
+    if (!recipe || !Array.isArray(cells) || cells.length !== recipe.cells.length) return null;
+    for (let k = 0; k < 4; k++) {
+      const [r0x, r0y] = rot(recipe.cells[0][0], recipe.cells[0][1], k);
+      const c0 = at(cells[0]);
+      const ox = c0[0] - r0x, oy = c0[1] - r0y, oz = c0[2] - recipe.cells[0][2];
+      let ok = true;
+      for (let i = 0; i < recipe.cells.length && ok; i++) {
+        const [rx, ry] = rot(recipe.cells[i][0], recipe.cells[i][1], k);
+        const c = at(cells[i]);
+        ok = c[0] === ox + rx && c[1] === oy + ry && c[2] === oz + recipe.cells[i][2];
+      }
+      if (ok) return { ox, oy, oz, k };
+    }
+    return null;
+  }
+
+  // THE SITE IS THE MONUMENT'S, PERMANENTLY (session 25). A recipe's
+  // `empty` cells must be clear to BUILD it; they must stay claimed after,
+  // or a block can be dropped into the middle of the finished monument.
+  //
+  // This used to happen by accident: the Eiffel's legs covered exactly 32%
+  // of each corner tile against a 30% claim threshold, so the ring was
+  // claimed by a two-point margin. Shrinking the tower (Viet's call, this
+  // session) dropped it under the line, blocks landed in the plaza beside
+  // the legs, and the packed rotation sweep went from 0 to 32 wrong pairs
+  // at 42.5deg — a three-axis painter's loop, the same family as THE
+  // HANGING RULE. Claiming the site outright removes the whole bug class
+  // and no longer depends on a two-point coverage margin.
+  function siteCellsFor(id, cells) {
+    const recipe = RECIPES.find(r => r.id === id);
+    if (!recipe || !recipe.empty || !recipe.empty.length) return [];
+    const pose = poseOf(recipe, cells, c => [c.gx, c.gy, c.gz]);
+    if (!pose) return [];
+    // OPT-IN, and there is no safe default. `empty` means "must be clear to
+    // BUILD"; claiming it afterwards is a SEPARATE decision, because a cell
+    // the geometry never covered is a cell a returning visitor may already
+    // have a block standing in — sealing it makes that block visible,
+    // unclickable and unremovable. Defaulting to 1 sealed four cells inside
+    // Stonehenge's circle, and the parity guard could not see it because it
+    // applied the new rule to BOTH sides of the comparison. Only the Eiffel
+    // declares siteZ; it earned it (see the recipe).
+    if (!recipe.siteZ) return [];
+    const out = [];
+    for (const e of recipe.empty) {
+      const [rx, ry] = rot(e[0], e[1], pose.k);
+      // siteZ lists the EXACT levels above the declared cell that the
+      // monument keeps, because "levels 0..N" is the wrong shape: level 0 is
+      // the open ground under the Eiffel's arches, which the shipped tower
+      // left free and a visitor may already have built on.
+      for (const dz of recipe.siteZ) {
+        const c = { gx: pose.ox + rx, gy: pose.oy + ry, gz: pose.oz + e[2] + dz };
+        if (W.isOnPlatform(c.gx, c.gy) && c.gz >= 0) out.push(c);
+      }
+    }
+    return out;
+  }
+  M.siteCellsFor = siteCellsFor;
+
+  // `id` is not optional in practice: without it the declared site (above)
+  // is left out and you get a DIFFERENT answer than instantiate stored,
+  // which reads as "blocked volume is stale". That has now cost two
+  // debugging sessions — the parity tool and the weight harness. Every
+  // caller has a mon.id or a recipe.id; pass it.
+  function blockedCellsFor(model, cells, id) {
     const claimed = new Set(cells.map(c => c.gx + ',' + c.gy + ',' + c.gz));
     const ownCols = new Set(cells.map(c => c.gx + ',' + c.gy));
     const out = new Map();
@@ -1194,6 +1879,11 @@
         }
       }
     });
+    // The declared site, claimed whether or not any piece happens to cover it
+    for (const c of siteCellsFor(id, cells)) {
+      const key = c.gx + ',' + c.gy + ',' + c.gz;
+      if (!claimed.has(key)) out.set(key, c);
+    }
     return [...out.values()];
   }
   M.blockedCellsFor = blockedCellsFor; // world.js re-derives on load
@@ -1270,7 +1960,7 @@
       pending,
       lift: 0, // hover lift (grid units) — eased in M.update, like blocks
     };
-    monument.blocked = blockedCellsFor(model, monument.cells);
+    monument.blocked = blockedCellsFor(model, monument.cells, recipe.id);
     W.monuments.push(monument);
     W.markDirty();
     return monument;
@@ -1641,22 +2331,10 @@
   // to the stored pieces.
   M.reinstantiate = (id, savedCells) => {
     const recipe = RECIPES.find(r => r.id === id);
-    if (!recipe || !Array.isArray(savedCells) ||
-        savedCells.length !== recipe.cells.length) return false;
-    for (let k = 0; k < 4; k++) {
-      const [r0x, r0y] = rot(recipe.cells[0][0], recipe.cells[0][1], k);
-      const ox = savedCells[0][0] - r0x;
-      const oy = savedCells[0][1] - r0y;
-      const oz = savedCells[0][2] - recipe.cells[0][2];
-      let ok = true;
-      for (let i = 0; i < recipe.cells.length; i++) {
-        const [rx, ry] = rot(recipe.cells[i][0], recipe.cells[i][1], k);
-        const c = savedCells[i];
-        if (c[0] !== ox + rx || c[1] !== oy + ry || c[2] !== oz + recipe.cells[i][2]) { ok = false; break; }
-      }
-      if (ok) { M.instantiate(recipe, ox, oy, oz, k); return true; }
-    }
-    return false;
+    const pose = poseOf(recipe, savedCells, c => c); // saved cells are [gx, gy, gz] triples
+    if (!pose) return false;
+    M.instantiate(recipe, pose.ox, pose.oy, pose.oz, pose.k);
+    return true;
   };
 
   // ONE shadow gate for monument pieces, shared by the permanent pass
@@ -1896,13 +2574,18 @@
   // the torii, the Crystal Palace breathes. All of it is LIGHT — bloom
   // entries and a few 'lighter' pixels — so the sorted world is
   // untouched and reduced motion simply holds each one still.
+  // DO NOT MEMOISE THIS. A drag mutates mon.cells IN PLACE (see
+  // applyMonumentMove in game.js and the drop path in world.js), and a
+  // cached centre is never invalidated by either — so the monument moves
+  // and its idle light stays pooled over the grass it left. Four lights
+  // hang off this: colosseum, crystal, stonehenge and torii. The torii
+  // is the one that regressed: it used to anchor on the gold plaque,
+  // which moved with the gate, and the session-27 rebuild dropped the
+  // plaque. Summing 4-12 cells per frame is cheaper than the bug.
   const centreOf = (mon) => {
-    if (!mon._centre) {
-      let sx = 0, sy = 0;
-      mon.cells.forEach(c => { sx += c.gx; sy += c.gy; });
-      mon._centre = { gx: sx / mon.cells.length + 0.5, gy: sy / mon.cells.length + 0.5 };
-    }
-    return mon._centre;
+    let sx = 0, sy = 0;
+    mon.cells.forEach(c => { sx += c.gx; sy += c.gy; });
+    return { gx: sx / mon.cells.length + 0.5, gy: sy / mon.cells.length + 0.5 };
   };
   const IDLE = {
     lighthouse(mon, t, time, rm) {
@@ -1956,14 +2639,30 @@
       E.addLight(p.x, p.y, t * 1.9, '255,170,80', 0.14 * f);
       E.addPoint(c.gx, c.gy, 0.35, 2.4, '255,170,80', 0.4 * f, { faces: true, ground: true });
     },
+    stonehenge(mon, t, time, rm) {
+      // A low warm pool inside the ring. The four lantern posts already
+      // throw their own point lights (drawGlows), but they sit OUTSIDE
+      // the stones, so the inner faces — the ones the visitor actually
+      // looks into — stayed cold. Viet's reference is lit from within the
+      // circle as much as around it. Very slow breath: this is a solstice
+      // monument, not a campfire.
+      const c = centreOf(mon);
+      const f = rm ? 1 : 0.9 + 0.1 * Math.sin(time * 0.7);
+      const p = E.toScreen(c.gx, c.gy, 0.3);
+      E.addLight(p.x, p.y, t * 1.7, '255,196,120', 0.11 * f);
+      E.addPoint(c.gx, c.gy, 0.3, 2.6, '255,196,120', 0.34 * f, { faces: true, ground: true });
+    },
     torii(mon, t, time, rm) {
-      // The shrine lantern: hangs at the plaque, breathes slowly.
-      const plaque = mon.model.find(m => m.color === 'gold');
-      if (!plaque) return;
+      // The shrine lantern: hangs under the nuki at the gate's centre,
+      // breathes slowly. Anchored on GEOMETRY, not on a piece colour —
+      // it used to find the gold plaque, and when the session-27 rebuild
+      // dropped the plaque (the reference has none) the light died
+      // silently; no gate checks idle lights (the audit caught it).
+      const c = centreOf(mon);
       const f = rm ? 1 : 0.85 + 0.15 * Math.sin(time * 1.3);
-      const p = E.toScreen(plaque.gx + 0.5, plaque.gy + 0.5, plaque.gz - 0.15);
+      const p = E.toScreen(c.gx, c.gy, 1.30);
       E.addLight(p.x, p.y, t * 1.5, '255,200,110', 0.16 * f);
-      E.addPoint(plaque.gx + 0.5, plaque.gy + 0.5, plaque.gz - 0.15, 2.2, '255,200,110', 0.4 * f, { faces: true, ground: true });
+      E.addPoint(c.gx, c.gy, 1.30, 2.2, '255,200,110', 0.4 * f, { faces: true, ground: true });
     },
     crystal(mon, t, time, rm) {
       // The palace lit from inside at night — warm gold (Viet, session

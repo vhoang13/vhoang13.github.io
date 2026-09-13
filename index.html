@@ -9,15 +9,20 @@
   <link rel="canonical" href="https://vietnhoang.com/">
   <!-- The root domain is the link that goes on applications and LinkedIn;
        it was the ONLY page with no social tags, so it unfurled as a bare
-       grey URL while the unfinished case studies unfurled properly.
-       No og:image yet (see the TODO in work/index.html) — summary, not
-       summary_large_image, so the card degrades honestly instead of
-       reserving space for an image that never arrives. -->
+       grey URL while the unfinished case studies unfurled properly. -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://vietnhoang.com/">
   <meta property="og:title" content="Viet Hoang · Product designer, learning to build">
   <meta property="og:description" content="The homepage is a game: stack blocks, and some shapes turn into monuments. Built end to end — no frameworks, no game engine.">
-  <meta name="twitter:card" content="summary">
+  <!-- The card: a 1200x630 render of the island itself, rendered off the
+       game's own canvas at native size (session 28) — the site IS the
+       portfolio, so the unfurl should be the thing, not a logo. -->
+  <meta property="og:image" content="https://vietnhoang.com/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="A voxel island at night, built from stacked blocks: the Parthenon, the Eiffel Tower, Stonehenge, a lighthouse and two office towers.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://vietnhoang.com/og.jpg">
   <!-- Inline SVG favicon: one request saved, and it matches the island's
        block-on-night palette. Any tab was showing a blank page icon. -->
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a1a2e'/%3E%3Cpath d='M16 6l9 5.2v9.6L16 26l-9-5.2v-9.6z' fill='%237dd956'/%3E%3Cpath d='M16 6l9 5.2L16 16.5 7 11.2z' fill='%23a8ea86'/%3E%3Cpath d='M16 16.5V26l-9-5.2v-9.6z' fill='%2360b13f'/%3E%3C/svg%3E">

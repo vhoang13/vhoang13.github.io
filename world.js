@@ -37,18 +37,27 @@
     gold:       { top: '#ffd968', right: '#c99a2e', front: '#edbc4a' },
     lightRed:   { top: '#e05050', right: '#a83636', front: '#c84343' },
     lightWhite: { top: '#f4f0e6', right: '#c0b9a8', front: '#e0d9c8' },
+    whitewash:    { top: '#f4efe3', right: '#b9b2a4', front: '#d9d3c5' }, // lighthouse reaches — same family as lightWhite but NO material: at 0.8 cells² the marble veins fired on a whitewashed tower (session 27)
     // True-to-reference monument colours (2026-08 detail pass). Monument-
     // only: not in BLOCK_COLORS, so none are placeable. Fronts stay bright
     // enough to read as firework sparks (debris keeps its piece colour).
     vermilion:    { top: '#ef5f45', right: '#b93a28', front: '#d84b35' }, // torii columns
     kasagiBlack:  { top: '#454b54', right: '#272b31', front: '#363b42' }, // torii top lintel
     copper:       { top: '#8a5a3c', right: '#5e3a26', front: '#744a30' }, // torii roof plates
+    railIron:     { top: '#5a4636', right: '#2e2219', front: '#42322a' }, // lighthouse ironwork + cap — warm dark brown from the reference; UNLIT, so the lamp cannot cream its top faces
     travertine:   { top: '#e8dfc8', right: '#b3a684', front: '#d0c5a6' }, // colosseum
     travertineDark:{ top: '#c9bda0', right: '#948a6d', front: '#b0a486' },
+    sandstone:    { top: '#ecdcc4', right: '#b39a80', front: '#d7c0a4' }, // obelisk — rosy Egyptian sandstone from Viet's reference (travertine was 11° yellower and read khaki on grass; and it is the colosseum's key)
     marble:       { top: '#f2efe6', right: '#bfbaa9', front: '#dcd7c6' }, // parthenon / arc
+    templeStone:  { top: '#efe4c9', right: '#b2a483', front: '#d6c8a6' }, // temple — the reference's PALE WARM stone, not the arc's blue-white marble
+    templeShade:  { top: '#d3c5a3', right: '#948868', front: '#bcae8c' }, // temple, the darker course (steps, pediment, fallen blocks)
+    templeDeep:   { top: '#8e836a', right: '#5a5342', front: '#726a55' }, // the inside of a chip on the temple — occlusion the renderer cannot compute, painted as a darker stone (the Stonehenge idiom)
     marbleShadow: { top: '#d8d3c4', right: '#a09a89', front: '#c0baa9' },
     ironBronze:   { top: '#8a6a4f', right: '#5a4232', front: '#71543e' }, // eiffel brown
-    sarsenGrey:   { top: '#b9b5ac', right: '#807c74', front: '#9d9990' }, // stonehenge
+    sarsenGrey:   { top: '#b9b5ac', right: '#807c74', front: '#9d9990' }, // lighthouse rock base (was stonehenge too)
+    sarsenWarm:   { top: '#c2c2c0', right: '#717370', front: '#9c9d9a' }, // stonehenge sarsen — a neutral GREY, lit top / mid front / dark side, matched to Viet's reference (session 27: 'not grey enough' twice; the cream went yellow under the lanterns)
+    sarsenDeep:   { top: '#5f605e', right: '#3d3e3c', front: '#4c4d4b' }, // the inside of a chisel nick — occlusion the renderer cannot compute, painted as a darker stone
+    lichen:       { top: '#71824f', right: '#485534', front: '#5c6b41' }, // the green at the foot of a standing stone — DARKER than grass on purpose, so it still reads inside a lantern's pool
     brickGrey:    { top: '#a8a49c', right: '#6f6c65', front: '#8d8a82' }, // great wall
     brickDark:    { top: '#8b8880', right: '#5a5750', front: '#74716a' },
     paleIronBlue: { top: '#b9cede', right: '#7f96aa', front: '#9fb5c7' }, // crystal palace frame
@@ -60,10 +69,14 @@
     limestoneCap: { top: '#f2e3ba', right: '#bda877', front: '#ddcb9c' }, // pyramid casing cap + portal frame
     water:        { top: '#8fc6ee', right: '#4f86b8', front: '#68a3d6' }, // gardens pools
     palm:         { top: '#5f9a3c', right: '#39602a', front: '#4c7d33' }, // gardens palm crowns (not 'grass': no flowers)
+    pruLouvre:    { top: '#565149', right: '#302d28', front: '#443f38' }, // 751 Broad's mechanical screen — the dark slatted band that caps the slab in the reference. No material family: this is a louvre, not stone, and the travertine blotches on a 0.10 band would be noise
     pruBlue:      { top: '#79a8e0', right: '#4a6da3', front: '#618cc4' }, // Prudential sign — lit corporate blue
     bnyTeal:      { top: '#45c7b8', right: '#2a8478', front: '#37a596' }, // BNY teal (kept: keys are forever)
     bnyNavy:      { top: '#2b4d78', right: '#17304f', front: '#213e63' }, // BNY sign card — the brand navy ground
     bnyGlass:     { top: '#3a4a56', right: '#232e38', front: '#2f3d48' }, // 240 Greenwich ribbon glazing, dark at night
+    bnyDrum:      { top: '#f2f4f4', right: '#bcc3c7', front: '#e2e7e9' }, // the rooftop drum ALONE is near-white — it is the crown, and it can only win if the seven facade bands below it stop being white too
+    bnyRoof:      { top: '#6d747a', right: '#43494f', front: '#585f65' }, // 240 Greenwich roof deck — a dark asphalt terrace. A pale deck at this camera is a fully-lit plane the size of the whole roof, and the tower grew a white lid
+    bnySilver:    { top: '#dde3e5', right: '#9fa7ac', front: '#c2c9cd' }, // 240 Greenwich spandrels — COOL silver, and NO material family: lightWhite is the temple's marble (veins fire on a 2.8-cell face) and it is warm cream where the photos are silver
   };
   W.BLOCK_COLORS = ['red', 'blue', 'green', 'yellow', 'orange', 'purple', 'cyan', 'pink', 'white'];
 
@@ -270,7 +283,7 @@
         mon.cells.forEach(c => { c.gz -= drop; });
         mon.model.forEach(p => { p.gz -= drop; });
         if (VH.monuments && VH.monuments.blockedCellsFor) {
-          mon.blocked = VH.monuments.blockedCellsFor(mon.model, mon.cells);
+          mon.blocked = VH.monuments.blockedCellsFor(mon.model, mon.cells, mon.id);
         } else {
           (mon.blocked || []).forEach(c => { c.gz -= drop; });
           mon.blocked = (mon.blocked || []).filter(c => c.gz >= 0);
@@ -462,7 +475,7 @@
           })),
         };
         // blocked is DERIVED, never saved (monuments.js loads before us)
-        mon.blocked = VH.monuments ? VH.monuments.blockedCellsFor(mon.model, mon.cells) : [];
+        mon.blocked = VH.monuments ? VH.monuments.blockedCellsFor(mon.model, mon.cells, mon.id) : [];
         W.monuments.push(mon);
         i++;
       });
@@ -945,8 +958,8 @@
   // MATERIAL PRINCIPLE block in HANDOFF.md) — if any of them ever reads
   // cheap, rebuild it on light behaviour, don't nudge its alpha.
   const MATERIALS = {
-    sarsenGrey: 'stone', stone: 'stone', stoneDark: 'stone',
-    travertine: 'stone', travertineDark: 'stone', graniteRose: 'stone',
+    sarsenGrey: 'stone', sarsenWarm: 'stone', stone: 'stone', stoneDark: 'stone',
+    travertine: 'stone', travertineDark: 'stone', graniteRose: 'stone', sandstone: 'stone',
     brickGrey: 'brick', brickDark: 'brick',
     // lightWhite is BOTH temple marble and lighthouse whitewash; the
     // marble area gate (veins only on faces ≥0.8 cells²) means the
@@ -955,6 +968,7 @@
     // the wood long-axis gate (≥1.2 cells) lets the roof through and
     // leaves the bands alone.
     marble: 'marble', marbleShadow: 'marble', lightWhite: 'marble',
+    templeStone: 'stone', templeShade: 'stone',
     vermilion: 'wood', kasagiBlack: 'wood', orange: 'wood', lightRed: 'wood',
     // Metal = plate seams, and ORDER is the tell (machined, not natural):
     // evenly spaced, never hashed. The seam spacing needs ~1.35 cells of
@@ -979,6 +993,62 @@
     metal: { dark: 0.20, light: 0.30 },
     // (stone stays deliberately LOW contrast — matte is its tell)
     sand: { dark: 0.07, light: 0.05 },
+  };
+
+  // ── Mark legibility (session 24) ─────────────────────────────
+  // One cell is min(W,H)/FRAME_DIV screen px (engine.js): 37 at the
+  // default view, 23 on a phone. Measured: a painted mark under ~4px is
+  // not a shape, and marks under ~8px apart fuse into texture. So every
+  // THICK value (the width or height of a thing meant to be read) is
+  // ≥ 0.11 cells and every PITCH (centre-to-centre) is ≥ 0.22. The
+  // pyramid shipped with 0.02-cell mortar joints — 0.7px, invisible —
+  // which is why this table exists. The painters below READ their
+  // constants from here, and tools/check-legibility.js reads this same
+  // table, so the numbers cannot drift from what the check sees. It
+  // fails on any value under the floor unless declared:
+  //   texture — meant to fuse into a surface at this scale (a distant
+  //             truss, an office grid): a decision, printed every run.
+  //   glow    — a warm point of light inside a dark opening; it reads as
+  //             a point by contrast, never as a shape.
+  // Name the culture, then the motif, before adding a mark here.
+  //
+  // ⚠ THIS FLOOR IS FOR PAINT ONLY — it does NOT govern geometry. A real
+  // stepped tier gets its own lit top face against shaded sides, and that
+  // value break carries an edge at ~1.3 screen px, a third of the paint
+  // floor. Measured on screen (session 26): an obelisk pyramidion of six
+  // tiers, each stepping in 1.3px per side, reads clearly as a point.
+  // So anything that should TAPER TO A POINT is built as stacked shrinking
+  // boxes. Do not cap it with a single cube on the grounds that a mark
+  // that small would be illegible — these are different limits, and the
+  // single cube on top is exactly what Viet called out.
+  const MM = W.MARK_METRICS = {
+    lattice: { thick: { opening: 0.128 }, pitch: { opening: 0.16 },
+               texture: 'the Eiffel truss at distance — a 6px pitch fuses into bracing on purpose' },
+    windows: { thick: { window: 0.12, height: 0.16 }, pitch: { window: 0.22 } },
+    gate:    { thick: { arch: 0.36, lantern: 0.11 }, pitch: { lantern: 0.60 } },
+    arcade:  { thick: { arch: 0.13, lit: 0.07 }, pitch: { arch: 0.25 }, glow: ['lit'] },
+    terrace: { thick: { band: 0.11, arch: 0.16, lit: 0.11, fall: 0.24, streak: 0.11, vine: 0.11 },
+               pitch: { arch: 0.30, vine: 0.26 } },
+    masonry: { thick: { joint: 0.11 }, pitch: { joint: 0.34 } },
+    door:    { thick: { opening: 0.22, height: 0.28, lintel: 0.36, lintelH: 0.11, lit: 0.11 } },
+    vault:   { thick: { discR: 0.22 } },
+    arch:    { thick: { arch: 0.30, lit: 0.11 } },
+    dentil:  { thick: { tooth: 0.11, toothH: 0.11 }, pitch: { tooth: 0.22 } },
+    panes:   { thick: { pane: 0.15 }, pitch: { pane: 0.25 } },
+    fan:     { thick: {} }, // the lit half-disc alone; R derives from the face (≥ 0.32 on the transept)
+    mullion: { thick: { bar: 0.11, window: 0.13 }, pitch: { bar: 0.24 } },
+    balcony: { thick: { band: 0.12, bar: 0.11 }, pitch: { bar: 0.31 } },
+    rafter:   { thick: { beam: 0.11 }, pitch: { beam: 0.22 } },
+    flute:    { thick: { groove: 0.11 }, pitch: { groove: 0.22 },
+               texture: 'a column is 0.28 cells wide, so ONE groove lands on each visible face — a flute, not a grid' },
+    porthole: { thick: { window: 0.14, height: 0.18 } },
+    planks:   { thick: { joint: 0.11 }, pitch: { joint: 0.24 } },
+    kennel:   { thick: { arch: 0.44 } },
+    sarsen:  { thick: { tile: 0.15 }, pitch: { tile: 0.15 },
+               texture: 'a BUTTED voxel mosaic — the tiles are the whole surface, there is no plain stone between them to fuse into a bar (Viet\'s reference, session 27)' },
+    curtain: { thick: { window: 0.10, height: 0.13 }, pitch: { column: 0.17, row: 0.23 },
+               texture: 'the office-tower window grid; revisit when bny/prudential are rebuilt against reference (Phase 3)' },
+    ribbon:  { thick: { window: 0.11, height: 0.12 }, pitch: { window: 0.22 } },
   };
 
   // One mark: a parallelogram in face space. o = face origin (screen),
@@ -1084,7 +1154,12 @@
   // comments already draw this line — sarsen is "quarried, not
   // machined", the pyramid is "stepped limestone courses" — so the
   // texture follows the research rather than inventing a rule.
-  const ROUGH_STONE = { sarsenGrey: 1 };
+  const ROUGH_STONE = { sarsenGrey: 1, sarsenWarm: 1 };
+  // A MONOLITH is one stone: blotches yes, but never the ashlar courses
+  // the cut-stone branch draws on any face ≥ 0.5 tall — the obelisk's
+  // 2.91 shaft got five faint course lines and read as six blocks
+  // (session 27 audit). Passed to texFace as rough = 'monolith'.
+  const MONOLITH = { sandstone: 1 };
 
   function texFace(ctx, fam, rnd, o, A, B, la, lb, id, pass, lit, rough) {
     if (fam === 'stone') {
@@ -1128,7 +1203,7 @@
         }
       }
       if (pass !== 0) return;
-      if (rough) {
+      if (rough === true || rough === 'rough') {
         // Quarried, not machined (the Stonehenge sarsen note): no
         // courses — instead the corners get bitten out, which is the
         // silhouette tell that separates a weathered block from a box
@@ -1140,7 +1215,7 @@
             (c & 1) ? 1 - s / la : 0, (c & 2) ? 1 - s / lb : 0,
             s / la, s / lb);
         }
-      } else if (id !== 2 && lb >= 0.5) {
+      } else if (id !== 2 && lb >= 0.5 && rough !== 'monolith') {
         // Cut stone: cleavage courses. Unlike brick these carry NO
         // vertical joints and the spacing wanders — that irregularity
         // is the whole difference between ashlar and brickwork.
@@ -1388,6 +1463,28 @@
 
   // Smallest largest-dimension that still earns outlines + moonlit rim
   const STROKE_MIN = 0.35;
+  // Marks that paint the WHOLE surface as a butted voxel mosaic. A piece
+  // carrying one gets NO outline, NO rim, NO material blotches and NO
+  // per-piece shade jitter at any size (four channels — the jitter alone
+  // drew a 13-L step across a cell line on a lintel top, the audit found): a chiselled sarsen is many butted chunks (a notch is a chunk
+  // that is narrower than its slot), and the 1px outline on each chunk
+  // is exactly what made session 26's slices read as a stack of slabs.
+  // Unstroked, same colour, world-anchored tiles: the chunks fuse into
+  // one boulder and only the real steps — the notches — show.
+  const VOXEL_MARKS = { sarsen: 1 };
+  // 'sarsen' mosaic inks per piece colour: [light, dark] ink, and alpha
+  // per face ([x-face, y-face, top]) tuned so a tile lands within ~12 L
+  // of its own face. Users: Stonehenge (sarsenWarm, default) and the
+  // torii's stone kasagi / bases / tips (kasagiBlack, brickDark).
+  const SARSEN_INK = {
+    default:     { ink: ['#f2f3f1', '#3c3d3c'], alpha: [[0.09, 0.18], [0.14, 0.12], [0.16, 0.09]] },
+    kasagiBlack: { ink: ['#7a8290', '#101317'], alpha: [[0.16, 0.30], [0.18, 0.28], [0.20, 0.24]] },
+  };
+  // Colours that take NO lantern light. The inside of a chisel nick is
+  // occluded by definition — it is dark BECAUSE light does not reach in —
+  // and it is 129 slivers on one monument: each one clipping four
+  // lantern sprites per face measured 4.5ms a frame on Viet's board.
+  const UNLIT = { sarsenDeep: 1, railIron: 1, templeDeep: 1 }; // railIron: a rail 0.1 cells from the lamp read as a pale parapet with lit tops
 
   // ── The hologram block ──────────────────────────────────────
   // A block held in LIGHT — the ceremony's silhouette reveal. Same
@@ -1471,7 +1568,8 @@
     // finial read as noise, and strokes are the expensive canvas op —
     // dense monument models pay for this twice over. (Sibling threshold:
     // monuments.js castsShadow uses the same largest-dimension test.)
-    const stroked = styled && Math.max(sxy, sy, sz) >= STROKE_MIN;
+    const voxel = !!(opts.tex && VOXEL_MARKS[opts.tex.mark]);
+    const stroked = styled && Math.max(sxy, sy, sz) >= STROKE_MIN && !voxel;
 
     const facePath = (a, b, c, d) => {
       ctx.beginPath();
@@ -1505,7 +1603,7 @@
     // it never moves, so it cannot flash.
     //   lit[] = { gx,gy,gz, R (reach), peak (0..1), sprite }
     const lit = [];
-    if (E.lights.length) {
+    if (E.lights.length && !UNLIT[colorKey]) {
       const bx = gx + 0.5, by = gy + 0.5;
       for (const l of E.lights) {
         if (!l.faces) continue;
@@ -1658,7 +1756,7 @@
     }
 
     // Per-block lightness jitter (top face only — the most visible)
-    if (styled && opts.shade) {
+    if (styled && opts.shade && !voxel) {
       ctx.globalAlpha = opacity * Math.abs(opts.shade) * 0.05;
       ctx.fillStyle = opts.shade > 0 ? '#ffffff' : '#000000';
       facePath(...topFace); ctx.fill();
@@ -1684,9 +1782,9 @@
       if (fam) {
         const amt = W.MAT[fam];
         const lsy = tp.sy != null ? tp.sy : tp.sxy;
-        if (amt > 0 && Math.max(tp.sxy, lsy, tp.sz) >= STROKE_MIN) {
+        if (amt > 0 && Math.max(tp.sxy, lsy, tp.sz) >= STROKE_MIN && !voxel) {
           drawMaterialTexture(ctx, fam, amt, opacity, tp, ref, ux, uy, uz,
-            xVisible, yVisible, tp.sxy, lsy, tp.sz, li, !!ROUGH_STONE[colorKey]);
+            xVisible, yVisible, tp.sxy, lsy, tp.sz, li, ROUGH_STONE[colorKey] ? 'rough' : MONOLITH[colorKey] ? 'monolith' : '');
         }
       }
       // The sign — flagged pieces only (the Prudential band). Drawn on
@@ -1735,8 +1833,8 @@
       if (tp.win) {
         const lsy = tp.sy != null ? tp.sy : tp.sxy;
         const H = tp.sz;
-        const CP = 0.17, CW = 0.10; // column pitch / window width, in cells
-        const RP = 0.23, RH = 0.13; // row pitch / window height
+        const CP = MM.curtain.pitch.column, CW = MM.curtain.thick.window; // column pitch / window width, in cells
+        const RP = MM.curtain.pitch.row, RH = MM.curtain.thick.height;    // row pitch / window height
         const usable = H - tp.win - 0.10;
         const nRows = Math.max(1, Math.floor(usable / RP));
         const hx = Math.round(tp.gx * 16), hy = Math.round(tp.gy * 16), hz = Math.round(tp.gz * 16);
@@ -1809,7 +1907,7 @@
         };
         ctx.beginPath();
         if (tp.mark === 'lattice') {
-          const P = 0.16, hd = 0.064;                 // opening pitch, diamond half-size — 0.03 of stone between openings reads as the X-bracing
+          const P = MM.lattice.pitch.opening, hd = MM.lattice.thick.opening / 2; // opening pitch, diamond half-size — 0.03 of stone between openings reads as the X-bracing
           for (const f of faces) {
             if (f.W < 2 * hd + 0.04) continue;
             const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
@@ -1834,11 +1932,87 @@
           ctx.globalAlpha = opacity * 0.55;
           ctx.fillStyle = '#3b2f22'; // the dark of the openings
           ctx.fill();
+        } else if (tp.mark === 'rafter') {
+          // The roof's beam ends: vertical divisions down the side faces,
+          // world-anchored along the face so the run reads as one rhythm
+          // across the many blocks a raking cornice is built from — the
+          // stacked-cube roof in Viet's reference, painted rather than
+          // built (each block is 0.24 wide; real divisions would be
+          // 0.02 slivers).
+          const P = MM.rafter.pitch.beam, BW = MM.rafter.thick.beam;
+          for (const f of faces) {
+            const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
+            for (let c = c0; c <= c1; c++) {
+              const u0 = c * P + (P - BW) / 2 - f.a0;
+              if (u0 < 0.01 || u0 + BW > f.W - 0.01) continue;
+              texMark(ctx, f.o, f.A, uz, u0 / f.W, 0.06 / H, BW / f.W, (H - 0.12) / H);
+            }
+          }
+          ctx.globalAlpha = opacity * 0.20;
+          ctx.fillStyle = '#4a4130';
+          ctx.fill();
+        } else if (tp.mark === 'flute') {
+          // A Doric column's flutes. The shaft is 0.28 cells wide, so at
+          // the 0.22 pitch floor exactly ONE groove fits on each visible
+          // face — which is the honest thing to draw at this size: a
+          // single soft shadow down the middle of the drum reads as a
+          // fluted column, where a grid of three would fuse into mush.
+          const GW = MM.flute.thick.groove;
+          for (const f of faces) texMark(ctx, f.o, f.A, uz, (f.W - GW) / 2 / f.W, 0.02 / H, GW / f.W, (H - 0.04) / H);
+          ctx.globalAlpha = opacity * 0.16;
+          ctx.fillStyle = '#4a4130';
+          ctx.fill();
+        } else if (tp.mark === 'planksX' || tp.mark === 'planksY') {
+          // Clapboard: the doghouse's walls (American backyard kennel,
+          // Viet's reference has horizontal plank rows). One darker joint
+          // band per plank on each side face, world-anchored on z so the
+          // rows run round the corner in step; no joint at the very foot
+          // or under the eaves.
+          const P = MM.planks.pitch.joint, JW = MM.planks.thick.joint;
+          for (const f of faces) {
+            const r0 = Math.floor(tp.gz / P), r1 = Math.ceil((tp.gz + H) / P);
+            for (let r = r0; r <= r1; r++) {
+              const v0 = r * P - tp.gz;
+              if (v0 < 0.06 || v0 + JW > H - 0.06) continue;
+              texMark(ctx, f.o, f.A, uz, 0, v0 / H, 1, JW / H);
+            }
+          }
+          ctx.globalAlpha = opacity * 0.22;
+          ctx.fillStyle = '#3a1410';
+          ctx.fill();
+          // …and the doorway: a dark rounded arch at the foot of ONE
+          // gable end (the reference has one door). Which axis that is
+          // comes from the mark's own suffix, which rotMark turns with
+          // the monument — a bare 'planks' put the door mid-flank at two
+          // of the four orientations. faces[0] is whichever ±x face the
+          // camera sees, faces[1] the ±y; skip when the visible one is
+          // the far gable.
+          const gy_ = tp.mark === 'planksY';
+          if (gy_ ? !yVisible : !xVisible) {
+            const f = faces[gy_ ? 1 : 0], AW = MM.kennel.thick.arch;
+            ctx.beginPath();
+            archPath(f, f.W / 2, AW, 0.56);
+            ctx.globalAlpha = opacity * 0.92;
+            ctx.fillStyle = '#2a1410';
+            ctx.fill();
+          }
+        } else if (tp.mark === 'porthole') {
+          // ONE warm lit window, centred on each side face — the
+          // lighthouse's white reaches (Viet's reference has one window
+          // per reach; the 'windows' row would put two on a face this
+          // wide). Colour only, no light: the lamp room is the only real
+          // light on the tower. No dark frame: the reference's is one
+          // voxel, which is 2px here — under the legibility floor.
+          const PW = MM.porthole.thick.window, PH = MM.porthole.thick.height;
+          for (const f of faces) texMark(ctx, f.o, f.A, uz, (f.W - PW) / 2 / f.W, (H - PH) / 2 / H, PW / f.W, PH / H);
+          ctx.globalAlpha = opacity * 0.9;
+          ctx.fillStyle = '#ffdf9c';
+          ctx.fill();
         } else if (tp.mark === 'windows') {
           // A row of warm lit windows, centred on each side face. Colour
           // only — a lit tower with no light (the Eiffel lesson: painted
           // windows, real lights only where a lamp actually hangs).
-          const P = 0.22, WW = 0.12, WH = 0.16;
+          const P = MM.windows.pitch.window, WW = MM.windows.thick.window, WH = MM.windows.thick.height;
           for (const f of faces) {
             const n = Math.floor((f.W - 0.10) / P);
             if (n < 1) continue;
@@ -1856,13 +2030,13 @@
           // rather than lamp cubes because a cube on the face would
           // overhang the cell — the one thing this monument may not do.
           const f = faces[tp.mark === 'gateY' ? 1 : 0];
-          const AW = 0.36, AH = 0.40, cu = f.W / 2;
+          const AW = MM.gate.thick.arch, AH = 0.40, LN = MM.gate.thick.lantern, LP = MM.gate.pitch.lantern, cu = f.W / 2;
           archPath(f, cu, AW, AH + AW / 2);
           ctx.globalAlpha = opacity * 0.9;
           ctx.fillStyle = '#1a1612';
           ctx.fill();
           ctx.beginPath();
-          for (const du of [-0.30, 0.30]) texMark(ctx, f.o, f.A, uz, (cu + du - 0.05) / f.W, 0.72 / H, 0.10 / f.W, 0.10 / H);
+          for (const du of [-LP / 2, LP / 2]) texMark(ctx, f.o, f.A, uz, (cu + du - LN / 2) / f.W, 0.72 / H, LN / f.W, LN / H);
           ctx.globalAlpha = opacity * 0.95;
           ctx.fillStyle = '#ffdf9c';
           ctx.fill();
@@ -1872,7 +2046,7 @@
           // stair-stepped ring shows one rhythm on every exposed sliver,
           // with a warm lit square inside each foot. Painted, not lit —
           // the ring carries no glow pieces.
-          const P = 0.25, AW = 0.13, AH = 0.30, LW = 0.07;
+          const P = MM.arcade.pitch.arch, AW = MM.arcade.thick.arch, AH = 0.30, LW = MM.arcade.thick.lit;
           const spots = [];
           for (const f of faces) {
             const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
@@ -1898,11 +2072,14 @@
           // model space; instantiate swaps it on odd quarter turns; plain
           // 'terrace' has no fall), and vines hanging from the top edge
           // at fixed per-column lengths so they never shimmer. Anchored
-          // to world coordinates like lattice. Six batched fills.
+          // to world coordinates like lattice. Six batched fills. Sizes
+          // come from MARK_METRICS: the 0.05 vines and 0.03 streaks that
+          // shipped in session 21b were under 2px — noise, not planting.
           // band sits 0.15-0.22 below the top edge: the hedge overhang above
           // hides the top 0.15 of every face at the iso elevation
-          const AP = 0.30, AW = 0.16, AH = 0.30, LS = 0.06, BT = 0.22, BB = 0.15;
-          const WW = 0.24, VP = 0.13, VW = 0.05;
+          const T = MM.terrace, AP = T.pitch.arch, AW = T.thick.arch, LS = T.thick.lit, BB = 0.15, BT = BB + T.thick.band;
+          const AH = Math.min(0.30, H - BT - 0.02); // arches stop under the band on every tier height
+          const WW = T.thick.fall, SW = T.thick.streak, VP = T.pitch.vine, VW = T.thick.vine;
           const fall = tp.mark === 'terraceY' ? faces[1] : tp.mark === 'terraceX' ? faces[0] : null;
           const inFall = (f, u0, u1) => f === fall && u1 > (f.W - WW) / 2 && u0 < (f.W + WW) / 2;
           for (const f of faces) texMark(ctx, f.o, f.A, uz, 0, (H - BT) / H, 1, (BT - BB) / H);
@@ -1935,9 +2112,9 @@
             ctx.fillStyle = '#8fc6ee'; // the fall — colour only, no light
             ctx.fill();
             ctx.beginPath();
-            for (const du of [-0.06, 0.06]) texMark(ctx, fall.o, fall.A, uz, (fall.W / 2 + du - 0.015) / fall.W, 0, 0.03 / fall.W, (H - BT) / H);
+            texMark(ctx, fall.o, fall.A, uz, (fall.W / 2 - SW / 2) / fall.W, 0, SW / fall.W, (H - BT) / H);
             ctx.globalAlpha = opacity * 0.7;
-            ctx.fillStyle = '#eaf7ff'; // white water streaks
+            ctx.fillStyle = '#eaf7ff'; // the pale core of the fall — ONE streak wide enough to be one (two 0.03 streaks were noise)
             ctx.fill();
           }
           ctx.beginPath();
@@ -1946,7 +2123,9 @@
             for (let c = c0; c <= c1; c++) {
               const u0 = c * VP + VP / 2 - VW / 2 - f.a0, u1 = u0 + VW;
               if (u0 < 0.01 || u1 > f.W - 0.01 || inFall(f, u0, u1)) continue;
-              const len = Math.min(H - 0.02, 0.18 + 0.22 * ((((c * 7919) % 13) + 13) % 13) / 13); // reaches below the overhang's shadow
+              const h13 = (((c * 7919) % 13) + 13) % 13;
+              if (h13 < 4) continue; // ~a third of the columns bare: irregular gaps say growing, a steady pitch says pattern
+              const len = Math.min(H - 0.02, 0.18 + 0.22 * h13 / 13); // reaches below the overhang's shadow
               texMark(ctx, f.o, f.A, uz, u0 / f.W, (H - len) / H, VW / f.W, len / H);
             }
           }
@@ -1958,11 +2137,12 @@
           // one pitch (like lattice), staggered half a pitch on alternate
           // COURSES (row = the piece's own index, gz / sz, so the bond
           // runs continuously up the steps instead of restarting at each
-          // one), plus a line along the top of any face tall enough. The
-          // ashlar branch of the stone material deliberately draws no
-          // vertical joints and never fires on faces this short; this is
-          // the reference's blockwork. Soft and matte — stone, not brick.
-          const P = 0.30, JW = 0.02;
+          // one). No horizontal line: the course steps ARE the horizontal
+          // joints. The ashlar branch of the stone material deliberately
+          // draws no vertical joints and never fires on faces this short;
+          // this is the reference's blockwork. Soft and matte — stone, not
+          // brick. The 0.02 joints that shipped were 0.7px: invisible.
+          const P = MM.masonry.pitch.joint, JW = MM.masonry.thick.joint;
           const row = Math.round(tp.gz / Math.max(tp.sz, 0.05));
           const off = (row % 2) ? P / 2 : 0;
           for (const f of faces) {
@@ -1972,16 +2152,15 @@
               if (u0 < 0.02 || u0 + JW > f.W - 0.02) continue;
               texMark(ctx, f.o, f.A, uz, u0 / f.W, 0, JW / f.W, 1);
             }
-            if (H >= 0.12) texMark(ctx, f.o, f.A, uz, 0, (H - 0.022) / H, 1, 0.016 / H);
           }
-          ctx.globalAlpha = opacity * 0.38;
+          ctx.globalAlpha = opacity * 0.50; // measured on screen: 0.30 dipped the riser ~8 levels, not the ~26 it promised
           ctx.fillStyle = '#8a7042';
           ctx.fill();
         } else if (tp.mark === 'doorX' || tp.mark === 'doorY') {
           // The pyramid's portal, on the named face only: a dark opening
           // with a warm light in its foot, and a paler lintel above it.
           const f = faces[tp.mark === 'doorY' ? 1 : 0];
-          const OW = 0.22, OH = 0.28, LW = 0.36, LH = 0.06, GL = 0.08;
+          const D = MM.door.thick, OW = D.opening, OH = D.height, LW = D.lintel, LH = D.lintelH, GL = D.lit;
           const cu = f.W / 2;
           texMark(ctx, f.o, f.A, uz, (cu - OW / 2) / f.W, 0.03 / H, OW / f.W, OH / H);
           ctx.globalAlpha = opacity * 0.92;
@@ -2002,9 +2181,10 @@
           // opening, so the spandrel block bridging the piers carries the
           // vault as PAINT — a full-face shadow wash, then the lit half
           // disc rising from the bottom edge (the vault glowing through
-          // the opening, as in the reference), then a thin warmer rim.
+          // the opening, as in the reference). The 0.04 warmer rim it
+          // once had was 1.5px — under the legibility floor — and went.
           const f = faces[tp.mark === 'vaultY' ? 1 : 0];
-          const cu = f.W / 2, R = Math.min(0.22, f.W / 2 - 0.02);
+          const cu = f.W / 2, R = Math.min(MM.vault.thick.discR, f.W / 2 - 0.02);
           const pt = (u, v) => ({ x: f.o.x + f.A.x * (u / f.W) + uz.x * (v / H), y: f.o.y + f.A.y * (u / f.W) + uz.y * (v / H) });
           const halfDisc = (r) => { let q = pt(cu - r, 0); ctx.moveTo(q.x, q.y); for (let i = 1; i <= 9; i++) { const t = Math.PI - (i / 10) * Math.PI; q = pt(cu + r * Math.cos(t), r * Math.sin(t)); ctx.lineTo(q.x, q.y); } q = pt(cu + r, 0); ctx.lineTo(q.x, q.y); ctx.closePath(); };
           texMark(ctx, f.o, f.A, uz, 0, 0, 1, 1);
@@ -2015,15 +2195,11 @@
           ctx.globalAlpha = opacity * 0.85;
           ctx.fillStyle = '#ffdf9c';
           ctx.fill();
-          ctx.beginPath(); halfDisc(Math.max(0.02, R - 0.04));
-          ctx.globalAlpha = opacity * 0.5;
-          ctx.fillStyle = '#e8c46a';
-          ctx.fill();
         } else if (tp.mark === 'archX' || tp.mark === 'archY') {
           // A single arch opening at the foot of the named face (the
           // Arc's side arches through the piers), lit from the plaza.
           const f = faces[tp.mark === 'archY' ? 1 : 0];
-          const AW = 0.30, AH = 0.62, GL = 0.08, cu = f.W / 2;
+          const AW = MM.arch.thick.arch, AH = 0.62, GL = MM.arch.thick.lit, cu = f.W / 2;
           archPath(f, cu, AW, AH);
           ctx.globalAlpha = opacity * 0.9;
           ctx.fillStyle = '#2a2118';
@@ -2034,15 +2210,18 @@
           ctx.fillStyle = '#ffdf9c';
           ctx.fill();
         } else if (tp.mark === 'dentil') {
-          // Dentil cornice: dark teeth along the lower third of both
-          // faces, world-anchored so they run around the corner in step.
-          const P = 0.10, TW = 0.05, TH = Math.min(0.05, H * 0.45);
+          // Dentil cornice: dark teeth nearly the full height of the band
+          // on both faces (real dentils are), world-anchored so they run
+          // around the corner in step. Shipped at 0.05 on a 0.10 pitch
+          // (1.7px teeth) they were a dirty edge; now 0.11 on 0.22.
+          const P = MM.dentil.pitch.tooth, TW = MM.dentil.thick.tooth;
+          const TH = Math.min(MM.dentil.thick.toothH, H - 0.004), v0 = (H - TH) / 2;
           for (const f of faces) {
             const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
             for (let c = c0; c <= c1; c++) {
               const u0 = c * P + (P - TW) / 2 - f.a0;
               if (u0 < 0.01 || u0 + TW > f.W - 0.01) continue;
-              texMark(ctx, f.o, f.A, uz, u0 / f.W, 0.02 / H, TW / f.W, TH / H);
+              texMark(ctx, f.o, f.A, uz, u0 / f.W, v0 / H, TW / f.W, TH / H);
             }
           }
           ctx.globalAlpha = opacity * 0.6;
@@ -2050,10 +2229,11 @@
           ctx.fill();
         } else if (tp.mark === 'panes') {
           // The Crystal Palace's glazing: a warm lit window in every bay
-          // (the palace glowing from inside), then the iron ribs at one
-          // world-anchored pitch and a transom line across, painted over
-          // the light so the frame reads in front of the glass.
-          const P = 0.25, RW = 0.03, GW = 0.15;
+          // (the palace glowing from inside) at one world-anchored pitch.
+          // The 0.10 of glass left between the windows IS the iron frame;
+          // the 0.03 ribs and 0.02 transom once drawn over it were ~1px
+          // and changed nothing on screen, so they went.
+          const P = MM.panes.pitch.pane, GW = MM.panes.thick.pane;
           const rows = [];
           for (const f of faces) {
             const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
@@ -2067,18 +2247,11 @@
           ctx.globalAlpha = opacity * 0.75;
           ctx.fillStyle = '#ffdf9c';
           ctx.fill();
-          ctx.beginPath();
-          for (const [f, u] of rows) {
-            if (u < 0.01 || u + RW > f.W - 0.01) continue;
-            texMark(ctx, f.o, f.A, uz, u / f.W, 0, RW / f.W, 1);
-          }
-          for (const f of faces) texMark(ctx, f.o, f.A, uz, 0, (H * 0.72) / H, 1, 0.02 / H);
-          ctx.globalAlpha = opacity * 0.8;
-          ctx.fillStyle = '#5b6b80'; // Paxton's pale iron, in shadow
-          ctx.fill();
         } else if (tp.mark === 'fanX' || tp.mark === 'fanY') {
           // The transept's fan window on the named end face: a lit half
-          // disc with dark spokes radiating from its base.
+          // disc. It had five 0.024 spokes — under 1px, and at this radius
+          // (~12px) no spoke count can stay 8px apart, so the tracery is
+          // left to the eye; the lunette shape carries the motif.
           const f = faces[tp.mark === 'fanY' ? 1 : 0];
           const cu = f.W / 2, R = Math.min(H - 0.03, f.W / 2 - 0.03);
           const pt = (u, v) => ({ x: f.o.x + f.A.x * (u / f.W) + uz.x * (v / H), y: f.o.y + f.A.y * (u / f.W) + uz.y * (v / H) });
@@ -2088,19 +2261,178 @@
           ctx.globalAlpha = opacity * 0.8;
           ctx.fillStyle = '#ffdf9c';
           ctx.fill();
-          ctx.beginPath();
-          for (let i = 1; i <= 5; i++) {
-            const t = Math.PI - (i / 6) * Math.PI, dx = Math.cos(t), dy = Math.sin(t), nx = -dy * 0.012, ny = dx * 0.012;
-            q = pt(cu + nx, ny); ctx.moveTo(q.x, q.y);
-            q = pt(cu + R * dx + nx, R * dy + ny); ctx.lineTo(q.x, q.y);
-            q = pt(cu + R * dx - nx, R * dy - ny); ctx.lineTo(q.x, q.y);
-            q = pt(cu - nx, -ny); ctx.lineTo(q.x, q.y); ctx.closePath();
+        } else if (tp.mark === 'sarsen') {
+          // Stonehenge's sarsen, session 27, built to Viet's voxel
+          // reference: every stone there is a MOSAIC of small cubes in
+          // three or four greys with the odd tan one, butted edge to edge
+          // — the tiles ARE the surface. So: a butted tile grid on all
+          // three faces, world-anchored (tile index = world position /
+          // pitch) so the pattern runs unbroken across the many chunks a
+          // chiselled stone is built from, and tiles are CLIPPED to the
+          // face rather than skipped, so a chunk narrower than one tile
+          // still carries its share of the mosaic and no seam shows.
+          //
+          // Egypt gets courses, Rome gets arches; a sarsen has no
+          // coursing at all — the grid is square, the tones are hashed,
+          // and no two neighbours are more alike than chance. Second
+          // user (session 27): the torii's stone kasagi, bases and tips —
+          // Japanese ishi-torii stone, the same voxel mottle in a darker
+          // family, through SARSEN_INK.
+          const P = MM.sarsen.pitch.tile;
+          const lsx = tp.sxy;
+          const x0 = tp.gx + (1 - lsx) / 2, y0 = tp.gy + (1 - lsy) / 2;
+          // tone by hash: 0 light, 1 dark, else the base colour. (A
+          // fourth, warm tone shipped for a day at 0.10 alpha: under 5 L
+          // on every face, invisible, one fill per piece for nothing.)
+          // ONE loop over the tiles into Path2D collectors (no per-tile
+          // allocation), one fill per tone per face: the three-pass
+          // version measured 3.7ms a frame on Viet's board.
+          const tone = (a, b, c) => {
+            const h = (((a * 73856093) ^ (b * 19349663) ^ (c * 83492791)) >>> 0) % 100;
+            return h < 22 ? 0 : h < 44 ? 1 : 2;
+          };
+          const paths = [[new Path2D(), new Path2D()], [new Path2D(), new Path2D()], [new Path2D(), new Path2D()]];
+          const quad = (path, o, A, B, u, v, du, dv) => {
+            const px = o.x + A.x * u + B.x * v, py = o.y + A.y * u + B.y * v;
+            path.moveTo(px, py);
+            path.lineTo(px + A.x * du, py + A.y * du);
+            path.lineTo(px + A.x * du + B.x * dv, py + A.y * du + B.y * dv);
+            path.lineTo(px + B.x * dv, py + B.y * dv);
+            path.closePath();
+          };
+          // one tile grid over a rectangle [a0, a0+aw] x [b0, b0+bw] of
+          // world space, drawn with basis (A over aw, B over bw); tiles
+          // are clipped to the face, never skipped
+          const grid = (fi, o, A, B, a0, aw, b0, bw, kc) => {
+            const c0 = Math.floor(a0 / P), c1 = Math.ceil((a0 + aw) / P);
+            const r0 = Math.floor(b0 / P), r1 = Math.ceil((b0 + bw) / P);
+            for (let c = c0; c < c1; c++) {
+              const u0 = Math.max(0, c * P - a0), u1 = Math.min(aw, (c + 1) * P - a0);
+              if (u1 - u0 < 0.005) continue;
+              for (let r = r0; r < r1; r++) {
+                const v0 = Math.max(0, r * P - b0), v1 = Math.min(bw, (r + 1) * P - b0);
+                if (v1 - v0 < 0.005) continue;
+                const k = tone(c, r, kc);
+                if (k === 2) continue;
+                quad(paths[fi][k], o, A, B, u0 / aw, v0 / bw, (u1 - u0) / aw, (v1 - v0) / bw);
+              }
+            }
+          };
+          const to = { x: ref.x + uz.x, y: ref.y + uz.y };
+          const zi = Math.round(tp.gz / P * 4); // faces on one plane share a key
+          const fx = faces[0], fy = faces[1];
+          const xk = Math.round((xVisible ? x0 + lsx : x0) / P);
+          const yk = Math.round((yVisible ? y0 + lsy : y0) / P);
+          grid(0, fx.o, fx.A, uz, fx.a0, fx.W, tp.gz, H, xk * 7 + 1);
+          grid(1, fy.o, fy.A, uz, fy.a0, fy.W, tp.gz, H, yk * 7 + 2);
+          grid(2, to, ux, uy, x0, lsx, y0, lsy, zi * 7 + 3);
+          // QUIET. Viet on the loud version: "muddy… lost the form" —
+          // the tiles must never fight the face shading that says solid.
+          // Alpha is PER FACE so every tile lands within ~12 L of its own
+          // face: one alpha for all three put a dark tile on the bright
+          // top at -24 L, nearer the front face than its own (the audit).
+          // Order: x-face (right tone), y-face (front tone), top.
+          // Inks are keyed by the PIECE COLOUR: the grey table on a
+          // near-black base (the torii's stone kasagi, session 27) put the
+          // dark ink AT the base value — one visible tone, dither not stone
+          // (the audit). A dark stone gets a mid-grey light ink and a true
+          // black dark ink instead.
+          const T = SARSEN_INK[colorKey] || SARSEN_INK.default;
+          for (let fi = 0; fi < 3; fi++) for (let k = 0; k < 2; k++) {
+            ctx.globalAlpha = opacity * T.alpha[fi][k];
+            ctx.fillStyle = T.ink[k];
+            ctx.fill(paths[fi][k]);
           }
-          ctx.globalAlpha = opacity * 0.8;
-          ctx.fillStyle = '#5b6b80';
+        } else if (tp.mark === 'balcony') {
+          // The Eiffel's gallery parapet: a lit band across the top of the
+          // slab with dark iron uprights over it, world-anchored so it runs
+          // round the corner in step.
+          //
+          // PAINTED, NOT BUILT (session 25) — and this one is load-bearing,
+          // not taste. It used to be eight free pieces per gallery: four
+          // 0.12-deep lamp bands and four 0.06 frames standing proud of the
+          // slab rim. Shrinking the tower brought them below z = 2, into the
+          // height a two-high block stack occupies, and a thin bar with
+          // blocks beside it is the three-axis painter's loop (THE HANGING
+          // RULE). Measured: 30 wrong pairs at 135deg, 6 with these bars
+          // gone. On the slab's own face there is no free piece to sort, so
+          // the loop cannot form at any size.
+          const B = MM.balcony, BH = B.thick.band, P = B.pitch.bar, BW = B.thick.bar;
+          // COPE is the unpainted stone left ABOVE the band. A gap, not a
+          // mark, so it carries no legibility floor — but it is what makes
+          // the gallery read as a parapet with a coping instead of a strip
+          // of tape stuck along the rim.
+          const COPE = 0.05;
+          // SKIP, never shrink. Clamping the band to fit a thin deck would
+          // silently drop it under the 4px floor while check-legibility.js
+          // still passed — it validates the TABLE, not the render, so a
+          // clamp here is a hole straight through the guard.
+          if (H >= BH + COPE + 0.01) {
+            const v0 = (H - BH - COPE) / H, dv = BH / H;
+            for (const f of faces) texMark(ctx, f.o, f.A, uz, 0, v0, 1, dv);
+            ctx.globalAlpha = opacity * 0.85;
+            ctx.fillStyle = '#ffdf9c'; // the lit gallery
+            ctx.fill();
+            ctx.beginPath();
+            for (const f of faces) {
+              const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
+              for (let c = c0; c <= c1; c++) {
+                const u0 = c * P + (P - BW) / 2 - f.a0;
+                if (u0 < 0.01 || u0 + BW > f.W - 0.01) continue;
+                texMark(ctx, f.o, f.A, uz, u0 / f.W, v0, BW / f.W, dv);
+              }
+              // A post ON each corner. The world-anchored run above drops any
+              // upright that would cross a face edge, which left every corner
+              // showing two half-bays of unbroken light joined into one long
+              // run — the one thing that read as tape rather than railing.
+              texMark(ctx, f.o, f.A, uz, 0, v0, BW / f.W, dv);
+              texMark(ctx, f.o, f.A, uz, (f.W - BW) / f.W, v0, BW / f.W, dv);
+            }
+            ctx.globalAlpha = opacity * 0.8;
+            ctx.fillStyle = '#5a4630'; // the iron uprights
+            ctx.fill();
+          }
+        } else if (tp.mark === 'ribbon') {
+          // The late shift, on a RIBBON window. 240 Greenwich glazes in
+          // continuous horizontal bands, so a band is one storey and the
+          // lit window fills its whole face height — there is no row
+          // pitch to give, which is why the 'curtain' grid (row pitch
+          // 0.23) cannot draw it: a 0.12-tall band has no room for a row.
+          // Only the LIT windows are painted; the band is already night
+          // glass, so the dark ones need no ink and the whole storey is
+          // one fill.
+          //
+          // Columns are anchored to WORLD coordinates, like the Eiffel's
+          // lattice, so every storey's windows line up in the same
+          // verticals instead of restarting at each band — the thing
+          // that makes a stack of bands read as one building.
+          // The lit SET is seeded per piece, so each storey is lit
+          // differently and nothing crawls under rotation, reload or the
+          // ceremony pop.
+          const P = MM.ribbon.pitch.window, WW = MM.ribbon.thick.window;
+          const hx = Math.round(tp.gx * 16), hy = Math.round(tp.gy * 16), hz = Math.round(tp.gz * 16);
+          const seeds = [E.hashRand(hx + 11, hy, hz), E.hashRand(hx, hy + 13, hz)];
+          for (let i = 0; i < faces.length; i++) {
+            const f = faces[i], rnd = seeds[i];
+            if (f.W < P) continue;
+            const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
+            for (let c = c0; c <= c1; c++) {
+              const a = c * P + (P - WW) / 2;                  // window left edge, world units along the face
+              const rv = rnd();                                // drawn for EVERY column, lit or not, so the sequence stays keyed to the column
+              if (a < f.a0 + 0.01 || a + WW > f.a0 + f.W - 0.01) continue;
+              // ~9% alight: some permanently, the rest switching over
+              // minutes on their own slow clocks. Reduced motion keeps
+              // the permanent set only — no switching.
+              const on = rv < 0.09 || (E.reducedMotion ? rv < 0.14
+                : rv < 0.26 && Math.sin(VH.clock.time * 0.06 + rv * 700) > 0.45);
+              if (on) texMark(ctx, f.o, f.A, uz, (a - f.a0) / f.W, 0, WW / f.W, 1);
+            }
+          }
+          ctx.globalAlpha = opacity * 0.85;
+          ctx.fillStyle = '#ffdf9c'; // the same late-shift warm as Prudential's grid
           ctx.fill();
         } else if (tp.mark === 'mullion') {
-          const P = 0.24, BW = 0.09;                  // window pitch, bar width (cells)
+          const P = MM.mullion.pitch.bar, BW = MM.mullion.thick.bar; // window pitch, bar width (cells)
           for (const f of faces) {
             if (f.W < P) continue;
             const c0 = Math.floor(f.a0 / P), c1 = Math.ceil((f.a0 + f.W) / P);
