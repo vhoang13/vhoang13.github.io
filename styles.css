@@ -7,6 +7,8 @@
   --color-text-dim: #8888a0;
   --color-accent: #7dd956;
   --color-surface: rgba(255, 255, 255, 0.06);
+  --color-gold: #ffd968;                  /* monuments, panel titles */
+  --focus-ring: rgba(232, 232, 224, 0.7); /* neutral keyboard ring */
   --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
   --font-pixel: 'Press Start 2P', monospace;
 }
@@ -436,12 +438,35 @@ body {
   overflow: hidden;
   /* Replays on every open: [hidden] toggles display, which restarts the
      animation — a transition would not fire across that boundary. */
-  animation: codex-in 0.45s cubic-bezier(0.25, 1, 0.5, 1);
+  animation: codex-in 0.28s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 @keyframes codex-in {
   from { opacity: 0; transform: translateY(-10px); }
   to   { opacity: 1; transform: none; }
+}
+
+/* Exit for the four right-edge panels (codex, company, World, chat).
+   game.js adds .closing, waits for animationend, then sets [hidden] —
+   so the card fades with a small nudge back the way it came instead of
+   vanishing on the spot. Exits are quieter and ~30% faster than the
+   280ms enter; ease-in, the one place it belongs. The chat entered from
+   below, so it leaves downward. */
+@keyframes panel-out {
+  to { opacity: 0; transform: translateY(-8px); }
+}
+@keyframes panel-out-down {
+  to { opacity: 0; transform: translateY(8px); }
+}
+.codex.closing,
+.company.closing,
+.world.closing {
+  animation: panel-out 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+}
+.chat.closing {
+  animation: panel-out-down 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
 }
 
 .codex-header {
@@ -629,7 +654,7 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
   overflow: hidden;
-  animation: chat-in 0.45s cubic-bezier(0.25, 1, 0.5, 1);
+  animation: chat-in 0.28s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 @keyframes chat-in {
@@ -968,11 +993,17 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
    ============================================ */
 @media (prefers-reduced-motion: reduce) {
   .badge-dot { animation: none; }
-  .panel, .controls, .hint {
+  .panel, .controls {
     opacity: 1 !important;
     transform: none !important;
     transition: none !important;
   }
+  /* The hint is NOT pinned visible like the two above: it is a timed
+     onboarding line (shown at 0.7s, hidden at 5.9s by game.js) and
+     centred by its translateX(-50%). Pinning opacity kept it on screen
+     forever, and transform: none slid it off-centre. Only the fade is
+     skipped. */
+  .hint { transition: none !important; }
   .hotbar {
     opacity: 1 !important;
     transform: translateX(-50%) !important;
@@ -1014,7 +1045,7 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
   overflow: hidden;
-  animation: codex-in 0.45s cubic-bezier(0.25, 1, 0.5, 1);
+  animation: codex-in 0.28s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 .company[hidden] { display: none; } /* author display beats the hidden attr otherwise */
@@ -1156,19 +1187,18 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
   /* The codex had no phone styles at all: fixed 300px at right 1.5rem
      overflows a 320px screen. Clamp the width, and clear the controls,
      which wrap to two rows inside 40vw here (taller than desktop). */
+  /* top and max-height for the codex, the company panel and the World
+     panel are set together at the end of this file, from the MEASURED
+     bottom of the control row (--controls-bottom) — not here. */
   .codex {
-    top: 6.5rem;
     right: 1rem;
     width: min(300px, calc(100vw - 2rem));
-    max-height: min(560px, calc(100vh - 11rem)); /* stay clear of the hotbar */
   }
 
-  /* Same clearance as the codex — it sits in the same place. */
+  /* Same slot as the codex. */
   .company {
-    top: 6.5rem;
     right: 1rem;
-    width: min(300px, calc(100vw - 2rem)); /* same as the codex — same slot */
-    max-height: min(560px, calc(100vh - 11rem));
+    width: min(300px, calc(100vw - 2rem));
   }
 
   /* Chat becomes a bottom sheet. dvh, not vh: when the iOS keyboard
@@ -1230,3 +1260,315 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
 /* Sound button quiet state: inner wave only — the outer arc dims.
    (Off keeps the existing slash; both wave paths share .snd-waves.) */
 #soundBtn.quiet .snd-wave-2 { opacity: 0.25; }
+
+/* ============================================
+   World (settings panel) — built by controls.js
+   Same card as the codex and the company panel: same slot, same
+   material, same header rhythm, so it reads as the fourth member of
+   one family rather than a settings dialog dropped in from elsewhere.
+   ============================================ */
+.ctrl-btn-text { line-height: 1; }
+
+.world[hidden] { display: none; } /* author display beats the hidden attr otherwise */
+
+.world {
+  position: fixed;
+  top: 5rem;
+  right: 1.5rem;
+  z-index: 15;
+  width: 300px;
+  max-height: min(560px, calc(100vh - 8rem));
+  display: flex;
+  flex-direction: column;
+  background: rgba(26, 26, 46, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  overflow: hidden;
+  animation: codex-in 0.28s cubic-bezier(0.25, 1, 0.5, 1); /* the codex's entrance, shared */
+}
+
+.world-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem 0.7rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.world-title {
+  font-family: var(--font-pixel);
+  font-size: 0.7rem;
+  font-weight: normal; /* it's an <h2> for the heading outline; the pixel face has one weight */
+  color: var(--color-gold);
+  letter-spacing: 0.06em;
+}
+
+/* "dev" when the rig is unlocked; empty otherwise */
+.world-mode {
+  font-size: 0.68rem;
+  color: var(--color-text-dim);
+  margin-left: auto;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* 44px target on a 16px glyph: the box grows, the × does not */
+.world-close {
+  position: relative;
+  background: none;
+  border: none;
+  color: var(--color-text-dim);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.1rem;
+  margin-left: 0.2rem;
+  touch-action: manipulation;
+}
+.world-close::before { content: ''; position: absolute; inset: -14px -16px; } /* 44 × 44 */
+
+/* 0.9rem top, like the company body — declared once, not derived */
+.world-body {
+  overflow-y: auto;
+  padding: 0.9rem 1rem 0.9rem;
+}
+
+.world-group { padding: 0.5rem 0 0.25rem; }
+.world-group:first-child { padding-top: 0; }
+.world-group + .world-group { border-top: 1px solid rgba(255, 255, 255, 0.06); }
+
+.world-group-title {
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+  margin: 0 0 0.25rem;
+}
+
+/* One row = label · value / slider. The whole row is the <label>, so
+   the text and the gap focus the slider too — no dead zones. */
+.world-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  column-gap: 0.6rem;
+  cursor: pointer;
+}
+
+.world-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/* Changing digits never jiggle the label beside them */
+.world-value {
+  font-size: 0.72rem;
+  color: var(--color-text-dim);
+  font-variant-numeric: tabular-nums;
+  min-width: 2.6em;
+  text-align: right;
+}
+
+/* The slider: a hairline track, a 20px thumb, a 44px strip to grab.
+   The thumb stays neutral — the gold is for monuments, the green for
+   the one CTA; a control that is not the point of the page borrows
+   neither. */
+.world-range {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 44px;
+  margin: -0.3rem 0 -0.15rem;
+  background: none;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  touch-action: pan-y; /* a horizontal drag is the slider's; a vertical one scrolls the panel */
+}
+.world-range:focus { outline: none; }
+/* The track fills up to the thumb (controls.js sets --p), so the slider
+   shows where in its range it sits without reading the number. */
+.world-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(to right,
+    var(--color-text-dim) var(--p, 0%), rgba(255, 255, 255, 0.22) var(--p, 0%));
+}
+.world-range::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.22);
+}
+.world-range::-moz-range-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-text-dim);
+}
+.world-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -8.5px; /* centre a 20px thumb on a 3px track */
+  border-radius: 50%;
+  background: var(--color-text);
+  border: 1px solid rgba(26, 26, 46, 0.6);
+  /* Dark surface: depth is a ring, not a drop shadow (which reads as a smudge here) */
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+  transition: transform 0.15s ease-out;
+}
+.world-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-text);
+  border: 1px solid rgba(26, 26, 46, 0.6);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+  transition: transform 0.15s ease-out;
+}
+.world-range:active::-webkit-slider-thumb { transform: scale(0.96); }
+.world-range:active::-moz-range-thumb { transform: scale(0.96); }
+/* Neutral focus ring on the thumb, keyboard only. A box-shadow ring, not
+   outline: Safari paints outline on the thumb pseudo inconsistently. */
+.world-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(26, 26, 46, 1), 0 0 0 5px var(--focus-ring);
+}
+.world-range:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(26, 26, 46, 1), 0 0 0 5px var(--focus-ring);
+}
+
+/* Sound: three radios drawn as one segmented control */
+.world-field {
+  border: none;
+  padding: 0.35rem 0 0.4rem;
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 0.6rem;
+}
+.world-field legend { float: left; padding: 0; } /* a legend cannot be a grid item; float makes it flow */
+
+.world-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.world-seg-item {
+  position: relative;
+  display: inline-flex;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+/* The native radio stays in the tree for keyboard and screen readers;
+   it just doesn't paint. Its checked state drives the pill — via the
+   sibling span (input:checked + span), which every engine supports,
+   rather than :has() on the label. */
+.world-seg-item input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.world-seg-item span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 40px; /* 44 on phones, below */
+  padding: 0 0.55rem;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--color-text-dim);
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.world-seg-item input:checked + span {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.12);
+}
+.world-seg-item input:focus-visible + span {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.world-sub {
+  font-size: 0.68rem;
+  line-height: 1.3;
+  color: var(--color-text-dim);
+  margin: 0;
+}
+
+/* Buttons inside the panel: the ctrl-btn recipe, sized for a thumb */
+.world-foot { padding: 0.5rem 0 0.15rem; }
+.world-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.15rem 0 0.35rem; }
+.world-btn {
+  min-height: 40px;
+  padding: 0.45rem 0.85rem;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease-out;
+}
+.world-btn:active { transform: scale(0.96); }
+.world-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.world-btn--wide { width: 100%; min-height: 44px; }
+
+/* Hover only where a pointer can hover — a tap must not leave a stuck state */
+@media (hover: hover) and (pointer: fine) {
+  .world-btn:hover { border-color: rgba(255, 255, 255, 0.22); background: rgba(255, 255, 255, 0.09); }
+  .world-close:hover { color: var(--color-text); }
+}
+
+/* Reduced motion: the World panel's own entrance and control transitions */
+@media (prefers-reduced-motion: reduce) {
+  .world { animation: none; }
+  .world-range::-webkit-slider-thumb, .world-range::-moz-range-thumb, .world-btn, .world-seg-item span { transition: none; }
+}
+
+/* The band above phones: lift the card clear of the centred hotbar,
+   exactly as the codex does (see the note above that block). */
+@media (min-width: 601px) and (max-width: 61rem) {
+  .world { max-height: min(560px, calc(100vh - 15rem)); }
+}
+
+/* Phones: same slot and clearances as the codex; the button drops its
+   word so the control row stays two rows deep inside 40vw. */
+@media (max-width: 600px), (pointer: coarse) and (max-height: 600px) {
+  .ctrl-btn-text { display: none; }
+  #worldBtn { padding: 0.5rem 0.6rem; }
+  .world {
+    right: 1rem;
+    width: min(300px, calc(100vw - 2rem));
+  }
+  /* Read at arm's length: one step up from the desktop sizes, and the
+     sound segments reach the 44px floor. */
+  .world-label, .world-btn { font-size: 0.875rem; }
+  .world-seg-item span { font-size: 0.8rem; min-height: 44px; }
+  .world-value, .world-sub { font-size: 0.75rem; }
+  .world-group-title { font-size: 0.68rem; }
+  /* All three right-edge cards clear the control row by measurement:
+     controls.js publishes --controls-bottom (the row wraps to two or
+     three deep depending on the phone, so no rem value is right for
+     both). The 6.5rem fallback is the old guess, for the moment before
+     the script runs. The max-height shrinks by the same amount so the
+     bottom edge still stays clear of the hotbar. */
+  .world,
+  .codex,
+  .company {
+    top: calc(var(--controls-bottom, 6.5rem) + 0.75rem);
+    max-height: min(560px, calc(100vh - var(--controls-bottom, 6.5rem) - 0.75rem - 4.5rem));
+  }
+}

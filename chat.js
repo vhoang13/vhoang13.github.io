@@ -312,11 +312,14 @@
   });
 
   // ── Open / close (the codex pattern) ────────────────────────
-  C.isOpen = () => !panel.hidden;
+  // VH.panelIsOpen / revealPanel / dismissPanel live in game.js (loaded
+  // after this file, defined long before any click) — the shared exit
+  // animation for the four right-edge cards.
+  C.isOpen = () => VH.panelIsOpen(panel);
 
   C.open = () => {
-    if (!panel.hidden) return;
-    panel.hidden = false;
+    if (VH.panelIsOpen(panel)) return;
+    VH.revealPanel(panel);
     lastFocus = document.activeElement;
     if (VH.sfx) VH.sfx.uiTick('open');
     if (VH.gofer && VH.gofer.chatOpen) VH.gofer.chatOpen();
@@ -339,8 +342,7 @@
   // and already played its own 'open' tick — two ticks in one press
   // sounds like a stutter. Escape and the ✕ keep their sound.
   C.close = (opts) => {
-    if (panel.hidden) return;
-    panel.hidden = true;
+    if (!VH.dismissPanel(panel)) return;
     // Drop a chip's pending fake-dig beat. Without this the timeout still
     // fires into a hidden panel: the lock stays set (so the next visit's
     // first chip is dead) and Abe's answer is sitting there on reopen with

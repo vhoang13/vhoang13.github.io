@@ -768,6 +768,7 @@
         canvas.style.cursor = 'default';
         closeCodex(); // one panel at a time — they share the right edge
         closeCompany({ silent: true });
+        if (VH.controls) VH.controls.close({ silent: true });
         VH.chat.open();
         return;
       }
@@ -890,6 +891,12 @@
       if (k === 'Escape' || k === 'Esc') VH.chat.close();
       return;
     }
+    // Same for the World panel: arrow keys nudge a focused slider, and
+    // without this they would ALSO rotate the island underneath it.
+    if (e.target && e.target.closest && e.target.closest('#world')) {
+      if (k === 'Escape' || k === 'Esc') VH.controls.close();
+      return;
+    }
     // Arrows match the drag: ArrowRight turns the world the way dragging right does
     if (k === 'ArrowLeft' || k === 'Left') {
       cam.rotateStep(1); if (VH.sfx) VH.sfx.uiTick('rotate'); e.preventDefault();
@@ -907,6 +914,7 @@
       // open, so the order is just a deterministic sweep.
       if (VH.chat.isOpen()) VH.chat.close();
       else if (!document.getElementById('company').hidden) closeCompany();
+      else if (VH.controls && VH.controls.isOpen()) VH.controls.close();
       else closeCodex(); // hoisted; defined with the codex wiring
     }
   });
@@ -1059,6 +1067,34 @@
     },
   };
 
+  // ── Panel exit, shared by the four right-edge cards ────────────
+  // dismissPanel plays the .closing animation (styles.css panel-out)
+  // and only then sets [hidden]; revealPanel cancels a dismissal that
+  // is still playing so a quick reopen never loses the card. Returns
+  // false when there was nothing to do, so callers can gate their tick
+  // and skip a second close while one is in flight. Reduced motion
+  // hides on the spot.
+  VH.dismissPanel = (el) => {
+    if (el.hidden || el.classList.contains('closing')) return false;
+    if (E.reducedMotion) { el.hidden = true; return true; }
+    el.classList.add('closing');
+    const done = () => {
+      if (!el.classList.contains('closing')) return; // reopened mid-exit
+      el.classList.remove('closing');
+      el.hidden = true;
+    };
+    el.addEventListener('animationend', done, { once: true });
+    setTimeout(done, 300); // the animation was cancelled or never ran
+    return true;
+  };
+  VH.revealPanel = (el) => {
+    if (!el.hidden && !el.classList.contains('closing')) return false;
+    el.classList.remove('closing');
+    el.hidden = false;
+    return true;
+  };
+  VH.panelIsOpen = (el) => !el.hidden && !el.classList.contains('closing');
+
   const companyPanel = document.getElementById('company');
   const companyPoints = document.getElementById('companyPoints');
   function openCompany(id) {
@@ -1066,6 +1102,7 @@
     if (!c) return false;              // every other monument still does nothing
     closeCodex();                      // one panel at a time — they share the right edge
     VH.chat.close({ silent: true });
+    if (VH.controls) VH.controls.close({ silent: true });
     document.getElementById('companyName').textContent = c.name;
     document.getElementById('companyRole').textContent = c.role;
     document.getElementById('companyLead').textContent = c.lead;
@@ -1079,13 +1116,12 @@
       companyPoints.appendChild(li);
     });
     document.getElementById('companyLink').href = c.href;
-    companyPanel.hidden = false;
+    VH.revealPanel(companyPanel);
     if (VH.sfx) VH.sfx.uiTick('open');
     return true;
   }
   function closeCompany(opts) {
-    if (companyPanel.hidden) return;
-    companyPanel.hidden = true;
+    if (!VH.dismissPanel(companyPanel)) return;
     if (!(opts && opts.silent) && VH.sfx) VH.sfx.uiTick('close');
   }
   document.getElementById('companyClose').addEventListener('click', () => closeCompany());
@@ -1096,33 +1132,42 @@
   const codex = document.getElementById('codex');
   const codexBtn = document.getElementById('codexBtn');
   function reflectCodexBtn() {
-    const open = !codex.hidden;
+    const open = VH.panelIsOpen(codex);
     codexBtn.setAttribute('aria-expanded', String(open));
     codexBtn.setAttribute('aria-label', open ? 'Close your collection' : 'Open your collection');
   }
   function openCodex() {
-    if (!codex.hidden) return;
+    if (VH.panelIsOpen(codex)) return;
     VH.chat.close({ silent: true }); // one panel at a time — they share the right edge; the button already ticked
     closeCompany({ silent: true });
+    if (VH.controls) VH.controls.close({ silent: true });
     // No rebuild here: the codex is built at boot and rebuilt on every
     // state change (onDiscovered, plan toggles, harness restores), so it
     // is always current while hidden. Rebuilding on open was a full DOM
     // teardown + 13 canvas thumbnails in the same frame as the panel's
     // entrance animation — the heaviest single beat of the old boot.
-    codex.hidden = false;
+    VH.revealPanel(codex);
     reflectCodexBtn();
   }
   function closeCodex() {
-    if (codex.hidden) return;
-    codex.hidden = true;
+    if (!VH.dismissPanel(codex)) return;
     reflectCodexBtn();
   }
   codexBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (VH.sfx) VH.sfx.uiTick(codex.hidden ? 'open' : 'close');
-    if (codex.hidden) openCodex(); else closeCodex();
+    const open = VH.panelIsOpen(codex);
+    if (VH.sfx) VH.sfx.uiTick(open ? 'close' : 'open');
+    if (open) closeCodex(); else openCodex();
   });
   document.getElementById('codexClose').addEventListener('click', () => closeCodex());
+  // The World panel (controls.js, loaded after this file) joins the
+  // one-panel-at-a-time rule from the other side: it calls this before
+  // it opens. Chat and company take {silent} so only one tick plays.
+  VH.closeOtherPanels = (opts) => {
+    closeCodex();
+    closeCompany(opts);
+    VH.chat.close(opts);
+  };
   // Tap any row to show/hide its PLAN (the blocks to place). Delegated,
   // because buildCodex() replaces every row on each rebuild. For an
   // undiscovered monument the name stays ??? — you learn what to build,
@@ -1364,9 +1409,11 @@
     const next = { full: 'quiet', quiet: 'off', off: 'full' }[VH.sfx.state] || 'full';
     VH.sfx.setState(next);
     reflectSound();
+    if (VH.controls) VH.controls.sync(); // the World panel shows the same state
     if (next !== 'off') VH.sfx.pop(); // audible confirmation at the new level
   });
   reflectSound();
+  VH.reflectSound = reflectSound; // the World panel's sound control drives this icon too
 
   // ── Postcard export ─────────────────────────────────────────
   document.getElementById('postcardBtn').addEventListener('click', (e) => {
@@ -2153,25 +2200,10 @@
     E.resize();
     console.log('[dev-frame]', JSON.stringify({ div: E.FRAME_DIV, anchor: E.FRAME_ANCHOR }));
   });
-  {
-    const FRAMES = [
-      ['A · small (old)', 600, 0.46],
-      ['B · default', 500, 0.46],   // ← the designer's pick, 2026-08-27
-      ['C · biggest', 460, 0.44],
-    ];
-    const bar = document.createElement('div');
-    bar.style.cssText = 'position:fixed;left:50%;top:70px;transform:translateX(-50%);z-index:60;display:flex;gap:8px;';
-    FRAMES.forEach(([label, div, anchor]) => {
-      const b = document.createElement('button');
-      b.textContent = label;
-      // 48px targets — this picker's whole job is being usable on a phone
-      b.style.cssText = 'min-width:88px;min-height:48px;padding:6px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.25);background:rgba(10,12,24,0.88);color:#e8e0d6;font:600 13px system-ui;cursor:pointer;';
-      b.addEventListener('click', () =>
-        document.dispatchEvent(new CustomEvent('vh-dev-frame', { detail: { div, anchor } })));
-      bar.appendChild(b);
-    });
-    document.body.appendChild(bar);
-  }
+  // The three-button framing bar that used to float here (A/B/C variants,
+  // designer's pick 2026-08-27) is now the Framing sliders in the World
+  // panel (controls.js, #dev tier) — same event, continuous instead of
+  // three presets, and it no longer covers the intro panel.
   // Flower density on the Hanging Gardens. Default 1.2 (designer-picked
   // on screen). Only EXACTLY 0 turns them off — the count floor is 1 per
   // piece, so 0.01 still plants one.

@@ -716,7 +716,14 @@
   };
 
   // ── Fireflies ───────────────────────────────────────────────
-  const fireflies = Array.from({ length: 3 }, () => ({
+  // FX.FIREFLIES is the live count (the World panel's "Fireflies" knob);
+  // the pool tops up or trims to it each frame. A newcomer fades in over
+  // FIREFLY_FADE seconds (a pop at full brightness reads as a glitch; a
+  // fade reads as "another one arrived"); a trimmed one just stops being
+  // drawn. The boot pool starts already-faded-in.
+  FX.FIREFLIES = 3;
+  const FIREFLY_FADE = 0.6;
+  const newFirefly = (age = 0) => ({
     px: (Math.random() - 0.5) * 12,
     py: (Math.random() - 0.5) * 12,
     pz: 1 + Math.random() * 2.5,
@@ -724,11 +731,18 @@
     tx: 0, ty: 0, tz: 1.5,      // wander target
     retarget: 0,
     phase: Math.random() * Math.PI * 2,
-  }));
+    age,
+  });
+  const fireflies = Array.from({ length: FX.FIREFLIES }, () => newFirefly(FIREFLY_FADE));
 
   FX.updateAndDrawFireflies = (dt) => {
     const ctx = E.ctx;
+    const want = Math.max(0, Math.round(FX.FIREFLIES));
+    while (fireflies.length < want) fireflies.push(newFirefly(E.reducedMotion ? FIREFLY_FADE : 0));
+    if (fireflies.length > want) fireflies.length = want;
     for (const f of fireflies) {
+      f.age += dt;
+      const fade = Math.min(1, f.age / FIREFLY_FADE);
       f.retarget -= dt;
       if (f.retarget <= 0) {
         f.retarget = 2 + Math.random() * 3;
@@ -747,10 +761,10 @@
       const pulse = E.reducedMotion ? 0.65 : 0.5 + 0.5 * Math.sin(clock.time * 2.2 + f.phase);
       const r = (2 + pulse * 2) * E.SCALE;
       // Halo is a LIGHT (bloom pass); the body draws additively
-      E.addLight(s.x, s.y, r * 4, '216,232,106', 0.35 + pulse * 0.3);
-      E.addPoint(f.px, f.py, f.pz, 1.3, '216,232,106', 0.2 + pulse * 0.15, { faces: true, ground: true });
+      E.addLight(s.x, s.y, r * 4, '216,232,106', (0.35 + pulse * 0.3) * fade);
+      E.addPoint(f.px, f.py, f.pz, 1.3, '216,232,106', (0.2 + pulse * 0.15) * fade, { faces: true, ground: true });
       ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = `rgba(240,248,180,${0.5 + pulse * 0.5})`;
+      ctx.fillStyle = `rgba(240,248,180,${(0.5 + pulse * 0.5) * fade})`;
       ctx.beginPath();
       ctx.arc(s.x, s.y, r * 0.6, 0, Math.PI * 2);
       ctx.fill();
