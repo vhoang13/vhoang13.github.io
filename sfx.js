@@ -39,6 +39,7 @@
   let actx = null;
   let buses = null;        // { ui, impact, blast, music, amb } → { in, duck }
   let preMaster = null;
+  let MASTER = 0.16;        // pre-limiter level; remembered until the graph exists
   let masterVol = null;
   let reverbIn = null;     // send target (convolver input, or delay fallback)
   let wetMaster = null;    // the ONE global wet dial (ships at 0.5 — raise on review)
@@ -139,7 +140,7 @@
 
       // Master chain. preMaster carries the exact old master value, so
       // dry levels are byte-identical to the previous build.
-      preMaster = actx.createGain(); preMaster.gain.value = 0.16;
+      preMaster = actx.createGain(); preMaster.gain.value = MASTER;
       const limiter = actx.createDynamicsCompressor();
       limiter.threshold.value = -6;
       limiter.knee.value = 0;
@@ -1102,10 +1103,12 @@
 
   // ════ 5 · DEV — live tuning (vh-dev-audio) ════
   S.tune = (o = {}) => {
-    if (o.wet != null && wetMaster) { WET = o.wet; wetMaster.gain.value = o.wet; }
+    // Each dial is remembered even before the audio graph exists (it is
+    // built on the first gesture), so a slider moved early is not lost.
+    if (o.wet != null) { WET = o.wet; if (wetMaster) wetMaster.gain.value = o.wet; }
     if (o.spread != null) SPREAD = o.spread;
-    if (o.master != null && preMaster) preMaster.gain.value = o.master;
+    if (o.master != null) { MASTER = o.master; if (preMaster) preMaster.gain.value = o.master; }
     if (o.amb != null && amb) amb.g.gain.setTargetAtTime(o.amb, actx.currentTime, 0.1);
-    return { wet: WET, spread: SPREAD, master: preMaster ? preMaster.gain.value : 0.16 };
+    return { wet: WET, spread: SPREAD, master: MASTER };
   };
 })();

@@ -913,7 +913,7 @@
       // Chat, then the company panel, then the codex — only one is ever
       // open, so the order is just a deterministic sweep.
       if (VH.chat.isOpen()) VH.chat.close();
-      else if (!document.getElementById('company').hidden) closeCompany();
+      else if (VH.panelIsOpen(document.getElementById('company'))) closeCompany();
       else if (VH.controls && VH.controls.isOpen()) VH.controls.close();
       else closeCodex(); // hoisted; defined with the codex wiring
     }
@@ -1080,20 +1080,35 @@
     el.classList.add('closing');
     const done = () => {
       if (!el.classList.contains('closing')) return; // reopened mid-exit
+      el.removeEventListener('animationend', onEnd);
+      clearTimeout(el._closeTimer);
       el.classList.remove('closing');
       el.hidden = true;
     };
-    el.addEventListener('animationend', done, { once: true });
-    setTimeout(done, 300); // the animation was cancelled or never ran
+    // Only the panel's OWN exit counts: animationend bubbles, and a
+    // child's animation (a codex row expanding) finishing mid-exit
+    // would otherwise hide the card while it is still fading.
+    const onEnd = (e) => { if (e.target === el) done(); };
+    el.addEventListener('animationend', onEnd);
+    // Fallback if the animation was cancelled or never ran. Stored on
+    // the element so a reopen can cancel it — a stale timer from an
+    // earlier close would cut a later close short.
+    el._closeTimer = setTimeout(done, 300);
     return true;
   };
   VH.revealPanel = (el) => {
     if (!el.hidden && !el.classList.contains('closing')) return false;
+    clearTimeout(el._closeTimer);
     el.classList.remove('closing');
     el.hidden = false;
     return true;
   };
   VH.panelIsOpen = (el) => !el.hidden && !el.classList.contains('closing');
+  VH.anyPanelOpen = () =>
+    ['codex', 'company', 'chat', 'world'].some((id) => {
+      const el = document.getElementById(id);
+      return el && VH.panelIsOpen(el);
+    });
 
   const companyPanel = document.getElementById('company');
   const companyPoints = document.getElementById('companyPoints');
@@ -1666,9 +1681,16 @@
     // them the island keeps rendering at the old size while every block
     // rescales, indefinitely (nothing else invalidates at rest), then
     // silently self-heals on the next rotate. Do not remove.
+    // The light terms are in here because the tiles are shaded from
+    // E.li (moon height, and the anchor that moves the scene centre the
+    // moon is measured from): without them the World panel's Moon
+    // slider re-lit every block while the grass kept the old moon until
+    // the next rotate.
     const key = [cam.angle.toFixed(5), dip.toFixed(4), E.W, E.H,
                  E.SCALE.toFixed(4), E.panX.toFixed(1), E.panY.toFixed(1),
-                 E.shakeX.toFixed(2), E.shakeY.toFixed(2)].join('|');
+                 E.shakeX.toFixed(2), E.shakeY.toFixed(2),
+                 E.FRAME_ANCHOR, (E.li.topLight || 0).toFixed(4),
+                 (E.li.pxLight || 0).toFixed(4), (E.li.pyLight || 0).toFixed(4)].join('|');
     if (key !== platformCacheKey) {
       platformCacheKey = key;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -2197,7 +2219,7 @@
     const d = e.detail || {};
     if (Number.isFinite(+d.div) && +d.div > 100) E.FRAME_DIV = +d.div;
     if (Number.isFinite(+d.anchor)) E.FRAME_ANCHOR = Math.max(0.2, Math.min(0.8, +d.anchor));
-    E.resize();
+    E.reframe();
     console.log('[dev-frame]', JSON.stringify({ div: E.FRAME_DIV, anchor: E.FRAME_ANCHOR }));
   });
   // The three-button framing bar that used to float here (A/B/C variants,
@@ -2956,6 +2978,7 @@
     controls.classList.add('show');
     hotbar.classList.add('show');
     hint.classList.add('show');
+    setTimeout(() => hint.classList.remove('show'), 5200); // same dwell as the animated boot
     uiReady = true;
     reflectSwatches();
     if (codexAutoOpen) openCodex();
@@ -2979,7 +3002,9 @@
         setTimeout(fn, Math.max(0, bootT + uiAt + offset - performance.now()));
       go(0,    () => { panel.classList.add('show'); controls.classList.add('show'); });
       go(250,  () => { hotbar.classList.add('show'); uiReady = true; reflectSwatches(); });
-      if (codexAutoOpen) go(500, openCodex);
+      // Yields to a panel the visitor already opened: the first click on
+      // World landed inside this window and the codex evicted it.
+      if (codexAutoOpen) go(500, () => { if (!VH.anyPanelOpen()) openCodex(); });
       go(700,  () => { hint.classList.add('show'); });
       go(5900, () => { hint.classList.remove('show'); });
     });

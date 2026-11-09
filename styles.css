@@ -998,8 +998,13 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
     transform: none !important;
     transition: none !important;
   }
+  /* The pin above must not defeat the tuck (game.js toggles .tucked when
+     zoomed in or on the fold button) — the same defect the .hint note
+     below describes, one selector over: a pinned-visible card that
+     pointer-events: none had already made untappable. */
+  .panel.show.tucked { opacity: 0 !important; }
   /* The hint is NOT pinned visible like the two above: it is a timed
-     onboarding line (shown at 0.7s, hidden at 5.9s by game.js) and
+     onboarding line (shown at 0.7s, hidden ~5s later by game.js) and
      centred by its translateX(-50%). Pinning opacity kept it on screen
      forever, and transform: none slid it off-centre. Only the fade is
      skipped. */
@@ -1013,6 +1018,7 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
     transition: none !important;
   }
   .codex { animation: none; }
+  .company { animation: none; }
   .codex-plan { animation: none; }
   .chat { animation: none; }
   .chat-dots i { animation: none; } /* the dig dots hold still — the text says it */
@@ -1535,7 +1541,11 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
 /* Reduced motion: the World panel's own entrance and control transitions */
 @media (prefers-reduced-motion: reduce) {
   .world { animation: none; }
-  .world-range::-webkit-slider-thumb, .world-range::-moz-range-thumb, .world-btn, .world-seg-item span { transition: none; }
+  /* One vendor pseudo-element per rule: a browser that does not know
+     the other's selector throws the whole list away. */
+  .world-range::-webkit-slider-thumb { transition: none; }
+  .world-range::-moz-range-thumb { transition: none; }
+  .world-btn, .world-seg-item span { transition: none; }
 }
 
 /* The band above phones: lift the card clear of the centred hotbar,
@@ -1546,6 +1556,14 @@ button.codex-row:hover .codex-reveal { color: #b6d0ff; }
 
 /* Phones: same slot and clearances as the codex; the button drops its
    word so the control row stays two rows deep inside 40vw. */
+/* A thumb, at any width (an iPad is coarse but wider than a phone):
+   every tappable thing in the row and the panel reaches the 44px floor.
+   On the shared class, not per button — Sound, Postcard and World all
+   shrank to ~33px the same way. */
+@media (pointer: coarse) {
+  .ctrl-btn { min-height: 44px; min-width: 44px; justify-content: center; }
+  .world-seg-item span, .world-btn { min-height: 44px; }
+}
 @media (max-width: 600px), (pointer: coarse) and (max-height: 600px) {
   .ctrl-btn-text { display: none; }
   #worldBtn { padding: 0.5rem 0.6rem; }

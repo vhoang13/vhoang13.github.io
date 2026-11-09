@@ -170,7 +170,7 @@
     // World-visible side effects only while the panel is actually up —
     // a reply landing after close() would otherwise make Abe hop and
     // blip on the island for no reason a visitor can see.
-    if (!panel.hidden) {
+    if (VH.panelIsOpen(panel)) {
       if (VH.gofer && VH.gofer.chatReact) VH.gofer.chatReact();
       // The RPG text-box blip — his voice arriving, once per line
       if (VH.sfx && VH.sfx.chatBlip) VH.sfx.chatBlip();

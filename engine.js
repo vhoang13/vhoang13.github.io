@@ -49,16 +49,24 @@
     canvas.height = E.H * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
-    E.BASE_SCALE = Math.min(E.W, E.H) / E.FRAME_DIV;
-    E.SCALE = E.BASE_SCALE * E.ZOOM;
-    if (E._clampPan) E._clampPan(); // viewport changed → pan bounds changed
     if (E._lightResize) E._lightResize();   // keep the light buffer in step
     if (E._shadowResize) E._shadowResize(); // and the shadow buffer
     if (E._holoResize) E._holoResize();     // and the hologram buffer
     if (E._groundResize) E._groundResize(); // and the ground-light buffer
-    if (E.placeMoon) E.placeMoon();         // the moon clears the top-right controls
+    reframe();
+  }
+  // The framing knobs (FRAME_DIV / FRAME_ANCHOR) only feed the scale and
+  // the scene centre — no buffer changes size — so a slider drag calls
+  // this, not resize(): reallocating seven canvases per pointer-move
+  // stuttered on the very phone the rig exists for.
+  function reframe() {
+    E.BASE_SCALE = Math.min(E.W, E.H) / E.FRAME_DIV;
+    E.SCALE = E.BASE_SCALE * E.ZOOM;
+    if (E._clampPan) E._clampPan(); // viewport changed → pan bounds changed
+    if (E.placeMoon) E.placeMoon();  // the moon clears the top-right controls
   }
   E.resize = resize;
+  E.reframe = reframe;
   resize();
   window.addEventListener('resize', resize);
 
