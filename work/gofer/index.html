@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gofer · Viet Hoang</title>
-  <meta name="description" content="Founding designer on a consumer iOS app, who also built it. The Taste Tab, a SwiftUI design system, and what shipping across three codebases actually taught me.">
+  <meta name="description" content="Founding designer on Gofer, a consumer iOS app. I designed it and wrote most of the iOS app.">
   <meta name="theme-color" content="#1a1a2e">
   <link rel="canonical" href="https://vietnhoang.com/work/gofer/">
 
@@ -12,8 +12,8 @@
        message, an application form, and a recruiter's email. Without these
        it unfurls as a bare grey link. -->
   <meta property="og:type" content="article">
-  <meta property="og:title" content="Gofer: a social wishlist that learns what you and your friends love.">
-  <meta property="og:description" content="I ran design for wealth at BNY. I left to be the founding designer on a consumer app, and the job turned out to be building the whole thing.">
+  <meta property="og:title" content="Gofer: a social wishlist that learns your taste over time.">
+  <meta property="og:description" content="I ran design for wealth at BNY. Then I joined Gofer to design it, and ended up writing most of the iPhone app too.">
   <meta property="og:url" content="https://vietnhoang.com/work/gofer/">
   <meta property="og:site_name" content="Viet Hoang">
   <!-- The card: a 1200x630 render of the island itself, rendered off the
@@ -25,8 +25,8 @@
   <meta property="og:image:alt" content="A voxel island at night, built from stacked blocks: the Parthenon, the Eiffel Tower, Stonehenge, a lighthouse and two office towers.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:image" content="https://vietnhoang.com/og.jpg">
-  <meta name="twitter:title" content="Gofer: a social wishlist that learns what you and your friends love.">
-  <meta name="twitter:description" content="I ran design for wealth at BNY. I left to be the founding designer on a consumer app, and the job turned out to be building the whole thing.">
+  <meta name="twitter:title" content="Gofer: a social wishlist that learns your taste over time.">
+  <meta name="twitter:description" content="I ran design for wealth at BNY. Then I joined Gofer to design it, and ended up writing most of the iPhone app too.">
 
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a1a2e'/%3E%3Cpath d='M16 6l9 5.2v9.6L16 26l-9-5.2v-9.6z' fill='%237dd956'/%3E%3Cpath d='M16 6l9 5.2L16 16.5 7 11.2z' fill='%23a8ea86'/%3E%3Cpath d='M16 16.5V26l-9-5.2v-9.6z' fill='%2360b13f'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -52,118 +52,96 @@
 
     <!-- Hero: the whole story in miniature, before any narrative.
          A recruiter landing here directly must not read seven sections
-         to learn what Gofer is or what he actually did. -->
+         to learn what Gofer is or what he actually did.
+         Every "I built" on this page is checked against git authorship
+         (2026-11-15): Nick built the backend; Viet wrote most of the iOS app. -->
     <header class="hero wrap">
       <p class="eyebrow">Founding designer &amp; design engineer · 2025&ndash;2026</p>
-      <h1>Gofer: a social wishlist that learns what you and your friends love.</h1>
+      <h1>Gofer: a social wishlist that learns your taste over time.</h1>
       <p class="standfirst">
-        I ran design for wealth at BNY. I left to be the founding designer on a
-        consumer app, and the job turned out to be building the whole thing.
+        I ran design for wealth at BNY. Then I joined Gofer to design it, and ended up
+        writing most of the iPhone app too.
       </p>
 
       <dl class="facts">
         <div>
           <dt>Role</dt>
-          <dd>Founding designer. I also wrote the iOS app, the backend, and the marketing site.</dd>
+          <dd>Founding designer. I also wrote most of the iOS app. The backend was built by my partner Nick and others.</dd>
         </div>
         <div>
           <dt>Before this</dt>
-          <dd>Head of Design for Wealth at BNY. Six designers, regulated software, four years.</dd>
+          <dd>Head of Design for Wealth at BNY for four years. I led six designers on regulated software.</dd>
         </div>
         <div>
           <dt>Shipped</dt>
-          <dd>An iOS app, shipped through TestFlight beta to the App Store, with real users. Plus a live marketing site.</dd>
+          <dd>An iOS app, soft-launched on the App Store in August 2026. Plus the marketing site.</dd>
         </div>
         <div>
           <dt>Built with</dt>
-          <dd>SwiftUI · Python and FastAPI · PostHog · AI coding agents, reviewed on device.</dd>
+          <dd>SwiftUI · PostHog · Claude Code</dd>
         </div>
       </dl>
     </header>
 
     <section class="wrap">
       <p>
-        Gofer is a consumer iOS app. You save products you want, you see what the people
-        you trust are into, and it gets sharper about your taste the more you use it.
+        Gofer is a social wishlist that learns your tastes over time. The more it learns
+        about your taste, the better your recommendations, and the better the gifts you
+        get from friends.
       </p>
       <p>
-        I built it. The iOS app, a Python backend, a SwiftUI design system, and the
-        marketing site are all work I shipped, most of it by directing AI coding agents
-        and checking every change myself.
+        I started in September 2025. Nick had already started the app. My plan was to
+        design in Figma and hand the designs off. I underestimated what a solid native
+        app takes, so I taught myself to build it with Claude.
       </p>
     </section>
 
     <section class="wrap">
-      <h2>The problem and the bet</h2>
+      <h2>The problem</h2>
       <p>
-        People find products everywhere. Instagram, a store window, a friend's text,
-        a screenshot they will never see again. Two things are broken at once: saving
-        is a mess, and trust is thin. Most recommendations come from an algorithm or a
-        paid influencer, not from the people you actually believe.
+        People find products everywhere. Instagram, stores, a friend's text,
+        screenshots. Saving them is a mess. And most recs come from an algorithm or a
+        paid influencer.
       </p>
-      <p>That was the bet: a save button you trust, made social, that learns.</p>
-    </section>
-
-    <section class="wrap">
-      <h2>Three lessons, one direction</h2>
       <p>
-        The product went through three shapes before it found the right one. From the
-        outside it can read like three pivots. Up close it was three lessons pointing
-        the same way.
-      </p>
-
-      <h3>Start: social discovery</h3>
-      <p>
-        Show people the products their friends love. They liked seeing it. Then they
-        kept trying to save it. The real signal was not "show me more," it was
-        "let me keep this."
-      </p>
-
-      <h3>Then: a social wishlist</h3>
-      <p>
-        Save and organize what you find, and see your friends' lists too. Closer. But a
-        bare list of products did not feel like <em>mine</em>. One person in testing said
-        the quiet part out loud.
-      </p>
-
-      <p class="pull">
-        A wishlist nobody else can see is annoying, and a wishlist that does not know
-        you is just a spreadsheet.
-      </p>
-
-      <h3>Now: taste at the core, wishlist on top</h3>
-      <p>
-        The app learns what you like first, and the social wishlist sits on that
-        foundation. The first time we read a taste profile back to someone in testing,
-        a person we had never met said, "that's me." That was the moment the product
-        worked.
-      </p>
-
-      <p>
-        The constant under all three: help people find things they will love, through
-        their own taste and the people they trust.
+        So the idea was one place to save anything you want. Your friends can see it,
+        and it learns what you like.
       </p>
     </section>
 
     <section class="wrap">
-      <h2>Where design and engineering were the same job</h2>
+      <h2>How the idea changed</h2>
       <p>
-        Three pieces of the work where the design decisions and the code were one task,
-        done by one person.
+        It didn't start as a wishlist. We assumed friends would want to share the
+        things they loved with other friends. If you loved your standing desk, you'd
+        share it, and maybe get rewarded for it. But we couldn't figure out a good way
+        to get friends to do that.
       </p>
+      <p>
+        So it slowly became more of a social shopping cart and wishlist. It made it
+        much easier to share things you haven't bought yet but are looking to buy.
+        Better, but a plain list doesn't learn anything about you.
+      </p>
+      <p>
+        Now it learns your taste first, through the Taste Tab, and the wishlist sits
+        on top.
+      </p>
+    </section>
+
+    <section class="wrap">
+      <h2>What I built</h2>
 
       <h3>The Taste Tab</h3>
       <p>
-        A short quiz that builds a taste profile and feeds recommendations. I designed
-        the flow and the interface, then wrote it across the iOS app, a Python and
-        FastAPI backend, and a 490-item product catalog the recommendations pull from.
+        A short quiz that builds your taste profile. I designed the flow, built the quiz
+        screens in the app, and picked the 490 products the quiz shows across seven
+        categories. The server side that turns your answers into recommendations was
+        mostly built by others. I made smaller changes there.
       </p>
       <p>
-        The choice underneath it: an explicit quiz, or infer taste from what people save.
-        Inferring is what most taste products reach for, and it is lower friction because
-        you never ask the user for anything. But it needs weeks of behavior before it
-        can say anything true, and a wishlist with nothing in it is a dead app on day one.
-        So I traded cold-start friction for a profile that works on first launch.
+        This is the part that gave me a lot more respect for engineers. Each quiz had
+        products on its cover, and once you took it, the cover changed to show what you
+        picked. Simple as a concept, hard to build.
       </p>
 
       <div class="artifact">
@@ -173,67 +151,68 @@
 
       <h3>DigUI, a design system in SwiftUI</h3>
       <p>
-        Cards, buttons, badges, loading states, built from scratch. Before it, color
-        values were scattered across 30 files. I pulled them into one shared set the
-        whole app reads from.
+        Cards, buttons, badges and loading states. I built it from scratch so screens
+        share the same pieces.
       </p>
       <p>
-        In 2019 I designed design system components for someone else to build. In 2026
-        I built this one myself, in SwiftUI.
+        In 2019 I designed components and engineers built them. On Gofer I built them
+        myself.
       </p>
 
       <div class="artifact">
         <span class="artifact-label">Component sheet · coming soon</span>
-        <span class="artifact-desc">The DigUI set, and the color tokens before and after.</span>
+        <span class="artifact-desc">The DigUI set: cards, buttons, badges, loading states.</span>
       </div>
 
       <h3>Onboarding and analytics</h3>
       <p>
-        I rebuilt the first run from 11 steps to 8 and added passwordless email sign-in.
-        To see where people fell off, I set up a PostHog funnel with privacy-safe
-        session replay.
+        We cut onboarding from about 11 steps to about 8, and I rebuilt it in code. I
+        also built the app side of passwordless email sign-in. Nick had already set up PostHog. I added
+        funnels so we could see where people dropped off, and set session replay to
+        hide anything private.
+      </p>
+
+      <h3>The marketing site</h3>
+      <p>
+        The first version was generated with an AI site builder before I joined. I
+        reworked it: a waitlist, analytics, cookie consent, and an A/B test setup for
+        the landing page. The illustrations were made in Midjourney to a style guide
+        I wrote.
       </p>
     </section>
 
     <section class="wrap">
-      <h2>How I worked: judgment, not keystrokes</h2>
+      <h2>How I worked</h2>
       <p>
-        I delivered features across three codebases (iOS, backend, web) by directing AI
-        coding agents, often more than one at a time, then reviewing and testing every
-        change on a real device. I decide what to build and why, I give the agent the
-        context it needs, and I own whether the result is right.
+        My process changed. I used to start in Mobbin for inspiration, design in Figma,
+        and find out late whether it actually worked. On Gofer, Claude pulled references
+        from Mobbin and gave me several concepts. I picked one, refined it, and it got
+        built straight in code. I rarely opened Figma.
       </p>
       <p>
-        One "clean" release taught me the edge of that. A code review passed two bugs
-        that only showed up once you actually lived in the product. Reading code and
-        using the thing are different skills. After that I stopped trusting a green
-        checkmark and started asking for the root cause.
+        Most of my code was written with Claude. I told it what to build and checked it
+        in the app myself.
       </p>
     </section>
 
     <section class="wrap">
-      <h2>What shipped, honestly</h2>
+      <h2>Where it ended up</h2>
       <p>
-        What is built and running: an iOS app shipped through TestFlight beta to the
-        App Store, in real users' hands, with the Taste Tab, the DigUI design system,
-        and the rebuilt onboarding.
-        Next to it, a live marketing site with custom illustrations, two A/B-tested
-        landing pages, analytics, cookie consent, and a waitlist.
-      </p>
-      <p>The honest part: this is an early product, not a finished success story.</p>
-      <p>
-        The strongest evidence so far is qualitative. The taste profile lands. People
-        reach for the save before we ask them to.
+        Gofer soft-launched on the App Store on August 5, 2026. The first users were
+        mostly friends, family and testers.
       </p>
     </section>
 
     <section class="wrap">
       <h2>What I took from it</h2>
       <p>
-        I stopped trusting a green checkmark. That is the smallest way I know to say
-        what changed: I used to hand work over and trust the review, and now I use the
-        thing myself before I believe it works. It made me slower on the day and
-        faster over a month.
+        I underestimated the work. I thought I'd design it and hand it off. Instead I
+        had to learn how to build it. But I learned how to learn.
+      </p>
+      <p>
+        It also changed what I think a designer's job is. If I'm building and shipping
+        it, I need to know where the data comes from and what iOS can do. It's really a
+        design engineer role.
       </p>
     </section>
 

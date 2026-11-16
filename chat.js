@@ -60,9 +60,9 @@
       answer:
         "The short version: Viet is a product designer who learned to build. " +
         "He ran design for Wealth at BNY — a team of six, regulated software — " +
-        "then went founding designer on a consumer app called Gofer, and ended " +
-        "up designing AND building it: the SwiftUI iOS app, the Python backend, " +
-        "a design system, shipped to the App Store. This island? He built it " +
+        "then joined a consumer app called Gofer as founding designer, and ended " +
+        "up writing most of the iPhone app too, plus its design system. His " +
+        "partner built the backend. This island? He built it " +
         "too. The full story is in the case study — or just ask me anything.",
     },
     {
@@ -72,8 +72,8 @@
         "Gofer was a social wishlist that learns what you and your friends " +
         "love — save products you find anywhere, see what people you trust " +
         "are into, and it sharpens on your taste as you use it. Viet was the " +
-        "founding designer and ended up building most of it himself. It " +
-        "shipped to TestFlight and then the App Store with real users. Want " +
+        "founding designer and ended up writing most of the iPhone app. It " +
+        "soft-launched on the App Store in August 2026. Want " +
         "to hear what he learned building it?",
     },
     {
@@ -81,11 +81,10 @@
       label: "Viet's journey",
       answer:
         "Viet spent years as a product designer — Prudential first, then Head " +
-        "of Design for Wealth at BNY. In 2025 he left to be founding designer " +
-        "on Gofer, and the job turned out to be building the whole thing. He " +
-        "taught himself to ship real software by directing AI coding agents " +
-        "and reviewing every change on a real device — judgment, not " +
-        "keystrokes. Now he takes ideas from zero to one. This island is his " +
+        "of Design for Wealth at BNY. In 2025 he joined Gofer as founding " +
+        "designer, planning to design and hand off. Instead he taught himself " +
+        "to build the iPhone app with Claude, and wrote most of it. Now he " +
+        "designs and builds. This island is his " +
         "proof.",
     },
     {

@@ -28,7 +28,9 @@
   --bg-raised: #21213a;
   --rule: rgba(232, 232, 224, 0.18);
 
+  /* type: Literata — long-form screen reading, optical sizing, strokes that hold light-on-dark (see TYPE above) */
   --font-read: 'Literata', Georgia, 'Times New Roman', serif;
+  /* type: Inter — micro-labels only (dt, meta, eyebrows); never a sentence */
   --font-ui: 'Inter', -apple-system, system-ui, sans-serif;
 
   /* 1.25 scale off an 18px base. Flat hierarchy is a named AI tell;
@@ -115,19 +117,10 @@ body {
   padding: var(--s-3) var(--gutter);
   font-family: var(--font-ui);
   font-size: var(--t-sm);
-  background: rgba(26, 26, 46, 0.86);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  /* Solid, not frosted (2026-11-15): a blurred bar is the glassmorphism tell,
+     and the 1px rule below already separates it from the scrolling text. */
+  background: var(--bg);
   border-bottom: 1px solid var(--rule);
-}
-/* Opaque fallback where blur is unsupported or the visitor asked for
-   less transparency. Never animated — backdrop-filter recomposites
-   every frame. */
-@supports not (backdrop-filter: blur(1px)) {
-  .topbar { background: var(--bg); }
-}
-@media (prefers-reduced-transparency: reduce) {
-  .topbar { background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 
 .back,
@@ -268,7 +261,8 @@ strong { font-weight: 500; }
 /* A held line. Once per piece, never more, and it must carry something the
    reader has not already been given. No side stripe: AI_SLOP_PREVENTION
    Ban 1 is borders wider than 1px, and the size, italic and space already
-   do the work. */
+   do the work. Unused since 2026-11-15 (Gofer's quotes were unverified, see
+   LESSONS.md L1); kept for a quote that has a named source. */
 .pull {
   font-size: var(--t-h3);
   line-height: 1.3;
